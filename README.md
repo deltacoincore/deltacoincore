@@ -1,5 +1,4 @@
-# Deltacoin Source Code
- Deltacoin Core [DECO, Ɗ]
+# Deltacoin Core [DECO, Ɗ]
  
  ![foxdemo](https://deltacoincore.com/assets/img/DCOIN.png)
  
