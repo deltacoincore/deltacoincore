@@ -18,7 +18,7 @@ There is a max supply of 333,966,600 Deltacoins.
 Each subsequent block will grant 9,999 coins to encourage miners to continue to secure the network and make up for lost wallets on hard drives/phones/lost encryption passwords/etc.
 
 > Deltacoin mining information <
-Deltacoin uses a simplified variant of the scrypt key derivation function as its proof of work with a target time of five minutes per block and difficulty readjustment after every block. The block rewards are fixed and halve every 16,700 blocks. A permanent reward of 9,999 Deltacoin per block will be issued. - To be adjusted at any given time depending on the demand of mining Deltacoin..
+Deltacoin uses a simplified variant of the scrypt key derivation function as its proof of work with a target time of five minutes per block and difficulty readjustment after every block. The block rewards are fixed with a block halving at 16,700 blocks. A permanent reward of 4999.5 Deltacoin per block will be issued.
 
 > • OS_Builds will be added here • <
 
@@ -29,3 +29,4 @@ Deltacoin uses a simplified variant of the scrypt key derivation function as its
 > • Development tips & tricks will be added here • <
 
 > • More info will be added to this readme as it becomes available! Thank you for your patience! • <
+> 
