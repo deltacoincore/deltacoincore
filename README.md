@@ -31,7 +31,9 @@ Ports | Ports
 RPC | P2P
 33603 | 33604
 
- **• Development tips & tricks will be added here •** 
 
+# • Development tips & tricks will be added here •
+
+# +
  **• More info will be added to this readme as it becomes available! Thank you for your patience! •** 
 
