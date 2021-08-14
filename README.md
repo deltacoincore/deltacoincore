@@ -21,11 +21,12 @@ Each subsequent block will grant 9,999 coins to encourage miners to continue to 
 # Deltacoin mining information 
 Deltacoin uses a simplified variant of the scrypt key derivation function as its proof of work with a target time of 10 minutes per block and difficulty readjustment after every block. The block rewards are fixed with a block halving at 16,700 blocks. A permanent reward of 4999.5 Deltacoin per block will be issued.
 
-# • OS_Builds will be added here • 
-
-# Ports
- • RPC	33603 
- • P2P	33604 
+# OS_Builds will be added here
+ 
+# Ports | Ports
+------------ | -------------
+RPC | P2P
+33603 | 33604
 
  **• Development tips & tricks will be added here •** 
 
