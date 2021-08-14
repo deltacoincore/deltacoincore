@@ -23,7 +23,8 @@ Deltacoin uses a simplified variant of the scrypt key derivation function as its
 
 # OS_Builds will be added here
  
-# Ports | Ports
+# Ports
+Ports | Ports
 ------------ | -------------
 RPC | P2P
 33603 | 33604
