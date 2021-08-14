@@ -33,7 +33,8 @@ RPC | P2P
 
 
 # • Development tips & tricks will be added here •
+Reserved
 
-# +
+# Other
  **• More info will be added to this readme as it becomes available! Thank you for your patience! •** 
 
