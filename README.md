@@ -32,8 +32,8 @@ RPC | P2P
 33603 | 33604
 
 
-# • Development tips & tricks will be added here •
-Reserved
+# Development tips & tricks
+TODO
 
 # Other
  **• More info will be added to this readme as it becomes available! Thank you for your patience! •** 
