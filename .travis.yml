@@ -29,6 +29,7 @@ dist: xenial
 os: linux
 language: minimal
 cache:
+version: ~> 1.0
   ccache: true
   directories:
     - depends/built
