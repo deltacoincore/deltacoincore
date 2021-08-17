@@ -2,8 +2,6 @@
  
  ![foxdemo](https://deltacoincore.com/assets/img/DCSOCIALPP.jpg)
  
- <p><a href="https://travis-ci.com/deltacoincore/deltacoincore" rel="nofollow"><img src="https://camo.githubusercontent.com/cc38e060307e3d85b8971169108210af50ee0ef7474a520ceb3590f3d597babc/68747470733a2f2f7472617669732d63692e636f6d2f646f6765636f696e2f646f6765636f696e2e7376673f6272616e63683d6d6173746572" alt="Build Status" data-canonical-src="https://travis-ci.com/deltacoincore/deltacoincore.svg?branch=master" style="max-width:100%;"></a></p>
- 
 Deltacoin is a cryptocurrency like Bitcoin, although it does not use SHA256 as its proof of work (POW). Taking development cues from Litecoin, Deltacoin currently employs a simplified variant of scrypt.
 <br>
 ***The main use-case of Deltacoin - Tipping System for Developers
