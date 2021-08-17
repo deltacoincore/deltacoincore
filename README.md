@@ -6,8 +6,8 @@
  
 Deltacoin is a cryptocurrency like Bitcoin, although it does not use SHA256 as its proof of work (POW). Taking development cues from Litecoin, Deltacoin currently employs a simplified variant of scrypt.
 <br>
-*The main use-case of Deltacoin will be a Tipping System for Developers < / >
- (Quality Code Contributions)*
+*The main use-case of Deltacoin will be a **Tipping System for Developers
+ (Quality Code Contributions)***
 
 **• Website:** https://deltacoincore.com.
  
