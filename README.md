@@ -3,7 +3,7 @@
  
 ![foxdemo](https://deltacoincore.com/assets/img/DCSOCIALPP.jpg)
  
-  <p><a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/HFg9jOi.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/HFg9jOi.jpg" style="max-width:100%;"></a> <a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/N2Xu7Qy.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/N2Xu7Qy.jpg" style="max-width:100%;"></a></p>
+ # <p><a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/HFg9jOi.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/HFg9jOi.jpg" style="max-width:100%;"></a> <a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/N2Xu7Qy.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/N2Xu7Qy.jpg" style="max-width:100%;"></a></p>
 </div>
 Deltacoin is a cryptocurrency like Bitcoin, although it does not use SHA256 as its proof of work (POW). Taking development cues from Litecoin, Deltacoin currently employs a simplified variant of scrypt.
 <br>
