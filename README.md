@@ -1,5 +1,5 @@
 <div align="center">
-Deltacoin Core [DECO, Ɗ]
+# Deltacoin Core [DECO, Ɗ]
  
  ![foxdemo](https://deltacoincore.com/assets/img/DCSOCIALPP.jpg)
  #
