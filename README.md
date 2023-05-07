@@ -43,5 +43,6 @@ RPC | P2P
 TODO
 
 # Other
- **• More info will be added to this readme as it becomes available! Thank you for your patience! •** 
+ **• More info will be added to this readme as it becomes available! Thank you for your patience! •**
+ -Deltacoincore Development Team.
 
