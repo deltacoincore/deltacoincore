@@ -1,7 +1,7 @@
 <div align="center">
 <h1>Deltacoin Core [DECO, Ɗ]</h1>
  
-![foxdemo](https://deltacoincore.com/assets/img/DCSOCIALPP.jpg) 
+![foxdemo](https://deltacoincore.com/assets/images/DCSOCIALPPP.jpg) 
 #
  
 <p><a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/HFg9jOi.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/HFg9jOi.jpg" style="max-width:100%;"></a> <a href="https://deltacoincore.com/" rel="nofollow"><img src="https://i.imgur.com/N2Xu7Qy.jpg" alt="Build Status" data-canonical-src="https://i.imgur.com/N2Xu7Qy.jpg" style="max-width:100%;"></a></p>
