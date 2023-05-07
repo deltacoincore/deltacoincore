@@ -45,5 +45,5 @@ TODO
 # Other
  **• More info will be added to this readme as it becomes available! Thank you for your patience! •**
  
- -- Deltacoincore Development Team.
+ • Deltacoincore Development Team •
 
