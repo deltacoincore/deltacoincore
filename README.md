@@ -24,7 +24,7 @@ Development is ongoing, and the development team, as well as other volunteers, c
 How many Deltacoins can exist?
 There is a max supply of 8,000,000,000 Deltacoins.
 
-Deltacoin Core v1.1.0 activates hybrid proof-of-work/proof-of-stake rules at mainnet block 83,100. After activation, proof-of-stake blocks receive a fixed 333 DELTA reward and proof-of-work blocks use a 9,999 DELTA subsidy.
+Deltacoin Core v1.1.0 activates hybrid proof-of-work/proof-of-stake rules at mainnet block 83,100. After activation, proof-of-stake blocks receive a fixed 333 DECO reward and proof-of-work blocks use a 9,999 DECO subsidy.
 
 # Deltacoin mining information 
 Deltacoin uses a simplified variant of the scrypt key derivation function for proof-of-work with difficulty readjustment after every block. Version 1.1.0 adds proof-of-stake support so the chain can continue moving when mining activity is low. Encrypted wallets must be unlocked for staking before they can mint proof-of-stake blocks.

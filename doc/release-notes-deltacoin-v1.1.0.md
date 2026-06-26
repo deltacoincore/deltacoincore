@@ -22,9 +22,9 @@ mainnet activation height.
   coinstake validation rules.
 - Proof-of-stake blocks use an explicit block-version marker and a coinstake
   transaction.
-- Proof-of-stake reward is fixed at `333 DELTA`.
-- Post-activation proof-of-work subsidy is restored to `9999 DELTA`.
-- Maximum money is set to `8,000,000,000 DELTA`.
+- Proof-of-stake reward is fixed at `333 DECO`.
+- Post-activation proof-of-work subsidy is restored to `9999 DECO`.
+- Maximum money is set to `8,000,000,000 DECO`.
 - Mainnet DNS discovery uses `node.deltacoincore.com`. DNS seeds are discovery
   helpers only and are not consensus dependencies.
 
