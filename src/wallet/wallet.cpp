@@ -6,12 +6,14 @@
 
 #include <wallet/wallet.h>
 
+#include <arith_uint256.h>
 #include <checkpoints.h>
 #include <chain.h>
 #include <wallet/coincontrol.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
 #include <fs.h>
+#include <hash.h>
 #include <interfaces/chain.h>
 #include <key.h>
 #include <key_io.h>
@@ -25,6 +27,7 @@
 #include <primitives/transaction.h>
 #include <script/descriptor.h>
 #include <script/script.h>
+#include <script/standard.h>
 #include <shutdown.h>
 #include <timedata.h>
 #include <txmempool.h>
@@ -2223,6 +2226,34 @@ CAmount CWallet::GetImmatureBalance() const
     return nTotal;
 }
 
+CAmount CWallet::GetStakeWeight() const
+{
+    CAmount nTotal = 0;
+    auto locked_chain = chain().lock();
+    LOCK2(cs_main, cs_wallet);
+
+    const Consensus::Params& consensusParams = Params().GetConsensus();
+    const int64_t nNow = GetAdjustedTime();
+    std::vector<COutput> vCoins;
+    AvailableCoins(*locked_chain, vCoins, true);
+
+    for (const COutput& output : vCoins) {
+        if (!output.fSpendable || output.nDepth <= 0) {
+            continue;
+        }
+
+        const int nCoinHeight = chainActive.Height() - output.nDepth + 1;
+        CBlockIndex* pindexCoin = chainActive[nCoinHeight];
+        if (pindexCoin == nullptr || nNow < pindexCoin->GetBlockTime() + consensusParams.nStakeMinAge) {
+            continue;
+        }
+
+        nTotal += output.tx->tx->vout[output.i].nValue;
+    }
+
+    return nTotal;
+}
+
 CAmount CWallet::GetUnconfirmedWatchOnlyBalance() const
 {
     CAmount nTotal = 0;
@@ -2309,6 +2340,122 @@ CAmount CWallet::GetAvailableBalance(const CCoinControl* coinControl) const
         }
     }
     return balance;
+}
+
+static bool CheckWalletStakeKernel(const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams, unsigned int nBits, int64_t blockFromTime, CAmount prevoutValue, const COutPoint& prevout, unsigned int nTimeTx)
+{
+    if (pindexPrev == nullptr || prevoutValue <= 0) {
+        return false;
+    }
+
+    if (nTimeTx < blockFromTime + consensusParams.nStakeMinAge) {
+        return false;
+    }
+
+    arith_uint256 bnTarget;
+    bnTarget.SetCompact(nBits);
+    if (bnTarget <= 0) {
+        return false;
+    }
+
+    bnTarget *= arith_uint256(prevoutValue);
+
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << pindexPrev->GetBlockHash();
+    ss << blockFromTime;
+    ss << prevout.hash;
+    ss << prevout.n;
+    ss << nTimeTx;
+
+    return UintToArith256(ss.GetHash()) <= bnTarget;
+}
+
+bool CWallet::CreateCoinStake(interfaces::Chain::Lock& locked_chain, const Consensus::Params& consensusParams, unsigned int nBits, int64_t nStakeTime, CAmount nFees, CMutableTransaction& tx, std::string& strFailReason)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(cs_wallet);
+
+    tx = CMutableTransaction();
+    strFailReason.clear();
+
+    CBlockIndex* pindexPrev = chainActive.Tip();
+    if (pindexPrev == nullptr) {
+        strFailReason = _("Cannot create coinstake without an active chain tip");
+        return false;
+    }
+
+    const int nStakeHeight = pindexPrev->nHeight + 1;
+    if (!consensusParams.IsHybridPoSEnabled(nStakeHeight)) {
+        strFailReason = _("Proof-of-stake is not active for the next block");
+        return false;
+    }
+
+    if (IsLocked()) {
+        strFailReason = _("Wallet locked, unable to create coinstake");
+        return false;
+    }
+
+    if (nStakeTime <= 0) {
+        nStakeTime = GetAdjustedTime();
+    }
+    if (consensusParams.nStakeTimestampMask > 0) {
+        nStakeTime &= ~consensusParams.nStakeTimestampMask;
+    }
+    if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
+        strFailReason = _("Coinstake time is too early for the next block");
+        return false;
+    }
+
+    std::vector<COutput> vCoins;
+    AvailableCoins(locked_chain, vCoins, true);
+    Shuffle(vCoins.begin(), vCoins.end(), FastRandomContext());
+
+    for (const COutput& output : vCoins) {
+        if (!output.fSpendable || output.nDepth <= 0) {
+            continue;
+        }
+
+        const int nCoinHeight = pindexPrev->nHeight - output.nDepth + 1;
+        CBlockIndex* pindexCoin = chainActive[nCoinHeight];
+        if (pindexCoin == nullptr) {
+            continue;
+        }
+
+        const COutPoint prevout(output.tx->GetHash(), output.i);
+        if (!CheckWalletStakeKernel(pindexPrev, consensusParams, nBits, pindexCoin->GetBlockTime(), output.tx->tx->vout[output.i].nValue, prevout, nStakeTime)) {
+            continue;
+        }
+
+        const CAmount nCredit = output.tx->tx->vout[output.i].nValue + consensusParams.nStakeReward + nFees;
+        if (!MoneyRange(nCredit)) {
+            strFailReason = _("Coinstake reward is outside the valid money range");
+            return false;
+        }
+
+        CMutableTransaction txNew;
+        txNew.vin.push_back(CTxIn(prevout));
+
+        CTxOut emptyOutput;
+        emptyOutput.SetEmpty();
+        txNew.vout.push_back(emptyOutput);
+        txNew.vout.push_back(CTxOut(nCredit, output.tx->tx->vout[output.i].scriptPubKey));
+
+        if (!SignTransaction(txNew)) {
+            strFailReason = _("Signing coinstake failed");
+            return false;
+        }
+
+        if (GetTransactionWeight(CTransaction(txNew)) > MAX_STANDARD_TX_WEIGHT) {
+            strFailReason = _("Coinstake transaction too large");
+            return false;
+        }
+
+        tx = std::move(txNew);
+        return true;
+    }
+
+    strFailReason = _("No mature stake kernel found");
+    return false;
 }
 
 void CWallet::AvailableCoins(interfaces::Chain::Lock& locked_chain, std::vector<COutput> &vCoins, bool fOnlySafe, const CCoinControl *coinControl, const CAmount &nMinimumAmount, const CAmount &nMaximumAmount, const CAmount &nMinimumSumAmount, const uint64_t nMaximumCount, const int nMinDepth, const int nMaxDepth) const

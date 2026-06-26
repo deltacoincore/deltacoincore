@@ -29,6 +29,10 @@
 #include <versionbitsinfo.h>
 #include <warnings.h>
 
+#ifdef ENABLE_WALLET
+#include <wallet/wallet.h>
+#endif
+
 #include <memory>
 #include <stdint.h>
 
@@ -223,6 +227,77 @@ static UniValue getmininginfo(const JSONRPCRequest& request)
     obj.pushKV("pooledtx",         (uint64_t)mempool.size());
     obj.pushKV("chain",            Params().NetworkIDString());
     obj.pushKV("warnings",         GetWarnings("statusbar"));
+    return obj;
+}
+
+static UniValue getstakinginfo(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0) {
+        throw std::runtime_error(
+            RPCHelpMan{"getstakinginfo",
+                "\nReturns proof-of-stake configuration and activation status.\n",
+                {},
+                RPCResult{
+                    "{\n"
+                    "  \"enabled\": true|false,         (boolean) Whether a PoS activation height is configured\n"
+                    "  \"staking\": true|false,         (boolean) Whether local automatic staking is enabled\n"
+                    "  \"active\": true|false,          (boolean) Whether PoS is active for the next block\n"
+                    "  \"activationheight\": n,         (numeric) Configured PoS activation height, or -1 when disabled\n"
+                    "  \"nextblockheight\": n,          (numeric) Next block height\n"
+                    "  \"minimumstakeage\": n,          (numeric) Minimum stake age in seconds\n"
+                    "  \"targetspacing\": n,            (numeric) Target PoS spacing in seconds\n"
+                    "  \"timestampmask\": n,            (numeric) Required timestamp mask\n"
+                    "  \"reward\": n.nnnnnnnn,          (numeric) Per-block stake reward\n"
+                    "  \"search-interval\": n,          (numeric) Last local staking search interval in seconds\n"
+                    "  \"weight\": n,                   (numeric) Local mature staking weight in base units\n"
+                    "  \"netstakeweight\": n,           (numeric) Estimated network staking weight\n"
+                    "  \"expectedtime\": n              (numeric) Estimated seconds to stake, or 0 when not staking\n"
+                    "}\n"
+                },
+                RPCExamples{
+                    HelpExampleCli("getstakinginfo", "")
+            + HelpExampleRpc("getstakinginfo", "")
+                },
+            }.ToString());
+    }
+
+    CAmount nWeight = 0;
+    int64_t nSearchInterval = 0;
+#ifdef ENABLE_WALLET
+    for (const std::shared_ptr<CWallet>& pwallet : GetWallets()) {
+        if (pwallet) {
+            nWeight += pwallet->GetStakeWeight();
+        }
+    }
+    nSearchInterval = GetLastCoinStakeSearchInterval();
+#endif
+    const Consensus::Params& consensusParams = Params().GetConsensus();
+    int nNextHeight = 0;
+    {
+        LOCK(cs_main);
+        nNextHeight = chainActive.Height() + 1;
+    }
+    const uint64_t nNetworkWeight = static_cast<uint64_t>(GetPoSKernelPS());
+    const bool fPoSActive = consensusParams.IsHybridPoSEnabled(nNextHeight);
+    const bool fStaking = gArgs.GetBoolArg("-staking", true) && fPoSActive && nSearchInterval > 0 && nWeight > 0;
+    const int64_t nExpectedTime = (fStaking && nNetworkWeight > 0)
+        ? static_cast<int64_t>(consensusParams.nStakeTargetSpacing * nNetworkWeight / nWeight)
+        : 0;
+
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("enabled", consensusParams.nHybridPoSActivationHeight != Consensus::NO_POS_ACTIVATION_HEIGHT);
+    obj.pushKV("staking", gArgs.GetBoolArg("-staking", true));
+    obj.pushKV("active", fPoSActive);
+    obj.pushKV("activationheight", consensusParams.nHybridPoSActivationHeight);
+    obj.pushKV("nextblockheight", nNextHeight);
+    obj.pushKV("minimumstakeage", consensusParams.nStakeMinAge);
+    obj.pushKV("targetspacing", consensusParams.nStakeTargetSpacing);
+    obj.pushKV("timestampmask", consensusParams.nStakeTimestampMask);
+    obj.pushKV("reward", ValueFromAmount(consensusParams.nStakeReward));
+    obj.pushKV("search-interval", nSearchInterval);
+    obj.pushKV("weight", nWeight);
+    obj.pushKV("netstakeweight", nNetworkWeight);
+    obj.pushKV("expectedtime", nExpectedTime);
     return obj;
 }
 
@@ -979,6 +1054,7 @@ static const CRPCCommand commands[] =
   //  --------------------- ------------------------  -----------------------  ----------
     { "mining",             "getnetworkhashps",       &getnetworkhashps,       {"nblocks","height"} },
     { "mining",             "getmininginfo",          &getmininginfo,          {} },
+    { "mining",             "getstakinginfo",         &getstakinginfo,         {} },
     { "mining",             "prioritisetransaction",  &prioritisetransaction,  {"txid","dummy","fee_delta"} },
     { "mining",             "getblocktemplate",       &getblocktemplate,       {"template_request"} },
     { "mining",             "submitblock",            &submitblock,            {"hexdata","dummy"} },

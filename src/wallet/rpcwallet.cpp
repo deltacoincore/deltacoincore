@@ -6,6 +6,10 @@
 
 #include <amount.h>
 #include <chain.h>
+#include <chainparams.h>
+#include <chainparamsbase.h>
+#include <consensus/consensus.h>
+#include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <httpserver.h>
@@ -20,6 +24,7 @@
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <policy/rbf.h>
+#include <pow.h>
 #include <rpc/mining.h>
 #include <rpc/rawtransaction.h>
 #include <rpc/server.h>
@@ -29,6 +34,7 @@
 #include <shutdown.h>
 #include <timedata.h>
 #include <util/bip32.h>
+#include <util/time.h>
 #include <util/system.h>
 #include <util/moneystr.h>
 #include <wallet/coincontrol.h>
@@ -37,8 +43,10 @@
 #include <wallet/rpcwallet.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
+#include <versionbits.h>
 #include <wallet/walletutil.h>
 
+#include <algorithm>
 #include <stdint.h>
 
 #include <univalue.h>
@@ -46,6 +54,8 @@
 #include <functional>
 
 static const std::string WALLET_ENDPOINT_BASE = "/wallet/";
+
+bool fWalletUnlockStakingOnly = false;
 
 bool GetWalletNameFromJSONRPCRequest(const JSONRPCRequest& request, std::string& wallet_name)
 {
@@ -93,6 +103,9 @@ void EnsureWalletIsUnlocked(CWallet * const pwallet)
 {
     if (pwallet->IsLocked()) {
         throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Please enter the wallet passphrase with walletpassphrase first.");
+    }
+    if (fWalletUnlockStakingOnly) {
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Wallet is unlocked for staking only.");
     }
 }
 
@@ -1916,7 +1929,7 @@ static UniValue walletpassphrase(const JSONRPCRequest& request)
         return NullUniValue;
     }
 
-    if (request.fHelp || request.params.size() != 2) {
+    if (request.fHelp || request.params.size() < 2 || request.params.size() > 3) {
         throw std::runtime_error(
             RPCHelpMan{"walletpassphrase",
                 "\nStores the wallet decryption key in memory for 'timeout' seconds.\n"
@@ -1927,11 +1940,14 @@ static UniValue walletpassphrase(const JSONRPCRequest& request)
                 {
                     {"passphrase", RPCArg::Type::STR, RPCArg::Optional::NO, "The wallet passphrase"},
                     {"timeout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The time to keep the decryption key in seconds; capped at 100000000 (~3 years)."},
+                    {"stakingonly", RPCArg::Type::BOOL, /* default */ "false", "Unlock wallet for staking only."},
                 },
                 RPCResults{},
                 RPCExamples{
             "\nUnlock the wallet for 60 seconds\n"
             + HelpExampleCli("walletpassphrase", "\"my pass phrase\" 60") +
+            "\nUnlock the wallet for staking only\n"
+            + HelpExampleCli("walletpassphrase", "\"my pass phrase\" 999999 true") +
             "\nLock the wallet again (before 60 seconds)\n"
             + HelpExampleCli("walletlock", "") +
             "\nAs a JSON-RPC call\n"
@@ -1941,6 +1957,7 @@ static UniValue walletpassphrase(const JSONRPCRequest& request)
     }
 
     int64_t nSleepTime;
+    bool fStakingOnly = false;
     {
         auto locked_chain = pwallet->chain().lock();
         LOCK(pwallet->cs_wallet);
@@ -1976,6 +1993,11 @@ static UniValue walletpassphrase(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_WALLET_PASSPHRASE_INCORRECT, "Error: The wallet passphrase entered was incorrect.");
         }
 
+        if (request.params.size() > 2 && !request.params[2].isNull()) {
+            fStakingOnly = request.params[2].get_bool();
+        }
+        fWalletUnlockStakingOnly = fStakingOnly;
+
         pwallet->TopUpKeyPool();
 
         pwallet->nRelockTime = GetTime() + nSleepTime;
@@ -1995,6 +2017,7 @@ static UniValue walletpassphrase(const JSONRPCRequest& request)
             LOCK(shared_wallet->cs_wallet);
             shared_wallet->Lock();
             shared_wallet->nRelockTime = 0;
+            fWalletUnlockStakingOnly = false;
         }
     }, nSleepTime);
 
@@ -2095,6 +2118,7 @@ static UniValue walletlock(const JSONRPCRequest& request)
 
     pwallet->Lock();
     pwallet->nRelockTime = 0;
+    fWalletUnlockStakingOnly = false;
 
     return NullUniValue;
 }
@@ -2457,6 +2481,416 @@ static UniValue getwalletinfo(const JSONRPCRequest& request)
     }
     obj.pushKV("private_keys_enabled", !pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS));
     return obj;
+}
+
+static UniValue createcoinstake(const JSONRPCRequest& request)
+{
+    std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+    CWallet* const pwallet = wallet.get();
+
+    if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+        return NullUniValue;
+    }
+
+    if (request.fHelp || request.params.size() > 1) {
+        throw std::runtime_error(
+            RPCHelpMan{"createcoinstake",
+                std::string("\nCreates a signed proof-of-stake candidate transaction for inspection.\n")
+                + "\nThis is a manual test hook only. It does not submit a block or broadcast the transaction.\n"
+                + HelpRequiringPassphrase(pwallet),
+                {
+                    {"stake_time", RPCArg::Type::NUM, /* default */ "adjusted node time", "Optional candidate stake time as a Unix timestamp."},
+                },
+                RPCResult{
+            "{\n"
+            "  \"hex\" : \"hex\",         (string) The serialized coinstake transaction\n"
+            "  \"txid\" : \"hex\",        (string) The coinstake transaction id\n"
+            "  \"stake_time\" : n,        (numeric) Candidate stake time used by the wallet\n"
+            "  \"bits\" : \"xxxxxxxx\",    (string) Compact target used for the candidate\n"
+            "  \"reward\" : n.nnnnnnnn    (numeric) Configured stake reward\n"
+            "}\n"
+                },
+                RPCExamples{
+                    HelpExampleCli("createcoinstake", "")
+            + HelpExampleRpc("createcoinstake", "")
+                },
+            }.ToString());
+    }
+
+    if (pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Private keys are disabled for this wallet");
+    }
+
+    int64_t nStakeTime = request.params.size() == 0 || request.params[0].isNull() ? GetAdjustedTime() : request.params[0].get_int64();
+
+    auto locked_chain = pwallet->chain().lock();
+    LOCK(pwallet->cs_wallet);
+
+    CBlockIndex* pindexPrev = chainActive.Tip();
+    if (pindexPrev == nullptr) {
+        throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "No active chain tip");
+    }
+
+    const Consensus::Params& consensusParams = Params().GetConsensus();
+    if (nStakeTime <= 0) {
+        nStakeTime = GetAdjustedTime();
+    }
+    nStakeTime = std::max<int64_t>(nStakeTime, pindexPrev->GetMedianTimePast() + 1);
+    if (consensusParams.nStakeTimestampMask > 0) {
+        nStakeTime &= ~consensusParams.nStakeTimestampMask;
+        if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
+            nStakeTime += consensusParams.nStakeTimestampMask + 1;
+        }
+    }
+
+    CBlockHeader block;
+    block.hashPrevBlock = pindexPrev->GetBlockHash();
+    block.nTime = nStakeTime;
+    block.nBits = GetNextWorkRequired(pindexPrev, &block, consensusParams);
+
+    CMutableTransaction tx;
+    std::string strFailReason;
+    if (!pwallet->CreateCoinStake(*locked_chain, consensusParams, block.nBits, nStakeTime, 0, tx, strFailReason)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
+    }
+
+    const CTransaction txConst(tx);
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("hex", EncodeHexTx(txConst));
+    result.pushKV("txid", txConst.GetHash().GetHex());
+    result.pushKV("stake_time", nStakeTime);
+    result.pushKV("bits", strprintf("%08x", block.nBits));
+    result.pushKV("reward", ValueFromAmount(consensusParams.nStakeReward));
+    return result;
+}
+
+static UniValue createposblock(const JSONRPCRequest& request)
+{
+    std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+    CWallet* const pwallet = wallet.get();
+
+    if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+        return NullUniValue;
+    }
+
+    if (request.fHelp || request.params.size() > 3) {
+        throw std::runtime_error(
+            RPCHelpMan{"createposblock",
+                std::string("\nCreates and optionally submits a regtest proof-of-stake block.\n")
+                + "\nThis is a manual hybrid-PoS test hook only. It is disabled outside regtest.\n"
+                + HelpRequiringPassphrase(pwallet),
+                {
+                    {"stake_time", RPCArg::Type::NUM, /* default */ "adjusted node time", "Optional first candidate stake time as a Unix timestamp."},
+                    {"submit", RPCArg::Type::BOOL, /* default */ "true", "Whether to submit the candidate block after local validation."},
+                    {"max_tries", RPCArg::Type::NUM, /* default */ "128", "Number of aligned stake timestamps to try before failing."},
+                },
+                RPCResult{
+            "{\n"
+            "  \"submitted\" : true|false,   (boolean) Whether the block was submitted\n"
+            "  \"accepted\" : true|false,    (boolean) Whether ProcessNewBlock accepted it, when submitted\n"
+            "  \"hash\" : \"hex\",           (string) Candidate block hash\n"
+            "  \"height\" : n,              (numeric) Candidate block height\n"
+            "  \"hex\" : \"hex\",            (string) Serialized candidate block\n"
+            "  \"coinstake\" : \"hex\",      (string) Candidate coinstake txid\n"
+            "  \"stake_time\" : n,          (numeric) Candidate stake time used\n"
+            "  \"tries\" : n,               (numeric) Aligned timestamps tested\n"
+            "  \"bits\" : \"xxxxxxxx\"       (string) Compact target used\n"
+            "}\n"
+                },
+                RPCExamples{
+                    HelpExampleCli("createposblock", "")
+            + HelpExampleRpc("createposblock", "")
+                },
+            }.ToString());
+    }
+
+    if (Params().NetworkIDString() != CBaseChainParams::REGTEST) {
+        throw JSONRPCError(RPC_MISC_ERROR, "createposblock is only available on regtest");
+    }
+
+    if (pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Private keys are disabled for this wallet");
+    }
+
+    int64_t nStakeTime = request.params.size() == 0 || request.params[0].isNull() ? GetAdjustedTime() : request.params[0].get_int64();
+    const bool fSubmit = request.params.size() < 2 || request.params[1].isNull() ? true : request.params[1].get_bool();
+    const int nMaxTries = request.params.size() < 3 || request.params[2].isNull() ? 128 : request.params[2].get_int();
+    if (nMaxTries <= 0 || nMaxTries > 10000) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_tries must be between 1 and 10000");
+    }
+
+    CBlock block;
+    uint256 coinstakeHash;
+    int nHeight = 0;
+    int nTries = 0;
+    unsigned int nBits = 0;
+    int64_t nSelectedStakeTime = 0;
+    std::string strFailReason = "No mature stake kernel found";
+
+    auto locked_chain = pwallet->chain().lock();
+    {
+        LOCK2(cs_main, pwallet->cs_wallet);
+
+        CBlockIndex* pindexPrev = chainActive.Tip();
+        if (pindexPrev == nullptr) {
+            throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "No active chain tip");
+        }
+
+        const CChainParams& chainparams = Params();
+        const Consensus::Params& consensusParams = chainparams.GetConsensus();
+        nHeight = pindexPrev->nHeight + 1;
+        if (!consensusParams.IsHybridPoSEnabled(nHeight)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Proof-of-stake is not active for the next block");
+        }
+
+        if (nStakeTime <= 0) {
+            nStakeTime = GetAdjustedTime();
+        }
+        nStakeTime = std::max<int64_t>(nStakeTime, pindexPrev->GetMedianTimePast() + 1);
+        const int64_t nStakeStep = consensusParams.nStakeTimestampMask > 0 ? consensusParams.nStakeTimestampMask + 1 : 1;
+        if (consensusParams.nStakeTimestampMask > 0) {
+            nStakeTime &= ~consensusParams.nStakeTimestampMask;
+            if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
+                nStakeTime += nStakeStep;
+            }
+        }
+
+        for (int i = 0; i < nMaxTries; ++i) {
+            int64_t nCandidateTime = nStakeTime + (i * nStakeStep);
+            if (consensusParams.nStakeTimestampMask > 0) {
+                nCandidateTime &= ~consensusParams.nStakeTimestampMask;
+            }
+            if (nCandidateTime <= pindexPrev->GetMedianTimePast()) {
+                continue;
+            }
+            ++nTries;
+
+            CBlockHeader header;
+            header.hashPrevBlock = pindexPrev->GetBlockHash();
+            header.nTime = nCandidateTime;
+            header.nBits = GetNextWorkRequired(pindexPrev, &header, consensusParams);
+
+            CMutableTransaction coinstakeTx;
+            std::string strCandidateFail;
+            if (!pwallet->CreateCoinStake(*locked_chain, consensusParams, header.nBits, nCandidateTime, 0, coinstakeTx, strCandidateFail)) {
+                strFailReason = strCandidateFail;
+                continue;
+            }
+
+            CMutableTransaction coinbaseTx;
+            coinbaseTx.vin.resize(1);
+            coinbaseTx.vin[0].prevout.SetNull();
+            coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
+            CTxOut emptyOutput;
+            emptyOutput.SetEmpty();
+            coinbaseTx.vout.push_back(emptyOutput);
+
+            block.SetNull();
+            block.nVersion = ComputeBlockVersion(pindexPrev, consensusParams);
+            block.nVersion |= BLOCK_VERSION_PROOF_OF_STAKE;
+            if (chainparams.MineBlocksOnDemand()) {
+                block.nVersion = gArgs.GetArg("-blockversion", block.nVersion);
+                block.nVersion |= BLOCK_VERSION_PROOF_OF_STAKE;
+            }
+            block.hashPrevBlock = pindexPrev->GetBlockHash();
+            block.nTime = nCandidateTime;
+            block.nBits = header.nBits;
+            block.nNonce = 0;
+            block.vtx.push_back(MakeTransactionRef(std::move(coinbaseTx)));
+            block.vtx.push_back(MakeTransactionRef(std::move(coinstakeTx)));
+            GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
+            block.hashMerkleRoot = BlockMerkleRoot(block);
+
+            CValidationState state;
+            if (!TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
+                strFailReason = strprintf("TestBlockValidity failed: %s", FormatStateMessage(state));
+                continue;
+            }
+
+            coinstakeHash = block.vtx[1]->GetHash();
+            nBits = block.nBits;
+            nSelectedStakeTime = nCandidateTime;
+            strFailReason.clear();
+            break;
+        }
+    }
+
+    if (block.vtx.empty()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
+    }
+
+    bool fAccepted = false;
+    if (fSubmit) {
+        std::shared_ptr<const CBlock> shared_block = std::make_shared<const CBlock>(block);
+        if (!ProcessNewBlock(Params(), shared_block, true, &fAccepted)) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "ProcessNewBlock, proof-of-stake block not accepted");
+        }
+    }
+
+    CDataStream ssBlock(SER_NETWORK, PROTOCOL_VERSION);
+    ssBlock << block;
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("submitted", fSubmit);
+    result.pushKV("accepted", fSubmit ? fAccepted : false);
+    result.pushKV("hash", block.GetHash().GetHex());
+    result.pushKV("height", nHeight);
+    result.pushKV("hex", HexStr(ssBlock.begin(), ssBlock.end()));
+    result.pushKV("coinstake", coinstakeHash.GetHex());
+    result.pushKV("stake_time", nSelectedStakeTime);
+    result.pushKV("tries", nTries);
+    result.pushKV("bits", strprintf("%08x", nBits));
+    return result;
+}
+
+struct StakePeriodRange {
+    int64_t start;
+    int64_t end;
+    CAmount total;
+    int count;
+    std::string name;
+};
+
+static bool IsTxCountedAsStaked(interfaces::Chain::Lock& locked_chain, const CWalletTx& tx)
+{
+    if (!tx.tx->IsCoinStake()) {
+        return false;
+    }
+    if (tx.isAbandoned() || !tx.IsInMainChain(locked_chain)) {
+        return false;
+    }
+    return tx.GetDepthInMainChain(locked_chain) > COINBASE_MATURITY;
+}
+
+static CAmount GetTxStakeAmount(interfaces::Chain::Lock& locked_chain, const CWalletTx& tx)
+{
+    return tx.GetCredit(locked_chain, ISMINE_SPENDABLE) - tx.GetDebit(ISMINE_SPENDABLE);
+}
+
+static std::vector<StakePeriodRange> PrepareStakeReportRanges()
+{
+    std::vector<StakePeriodRange> ranges;
+    const int64_t now = GetTime();
+    const int64_t one_day = 24 * 60 * 60;
+
+    for (int i = 0; i < 30; ++i) {
+        const int64_t end = now - (i * one_day);
+        const int64_t start = end - one_day + 1;
+        ranges.push_back({start, end, 0, 0, FormatISO8601DateTime(start)});
+    }
+
+    const struct {
+        int days;
+        const char* name;
+    } summary_ranges[] = {
+        {1, "Last 24H"},
+        {7, "Last 7 Days"},
+        {30, "Last 30 Days"},
+        {365, "Last 365 Days"},
+    };
+
+    for (const auto& range : summary_ranges) {
+        ranges.push_back({now - (range.days * one_day), now, 0, 0, range.name});
+    }
+
+    ranges.push_back({0, 0, 0, 0, "Latest Stake"});
+    return ranges;
+}
+
+static UniValue getstakereport(const JSONRPCRequest& request)
+{
+    CWallet * const pwallet = GetWalletForJSONRPCRequest(request).get();
+
+    if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+        return NullUniValue;
+    }
+
+    if (request.fHelp || request.params.size() != 0) {
+        throw std::runtime_error(
+            RPCHelpMan{"getstakereport",
+                "\nList proof-of-stake totals for recent wallet staking periods.\n",
+                {},
+                RPCResult{
+                    "{\n"
+                    "  \"Last 24H\": n.nnnnnnnn,        (numeric) stake total in the last 24 hours\n"
+                    "  \"Last 7 Days\": n.nnnnnnnn,     (numeric) stake total in the last 7 days\n"
+                    "  \"Latest Time\": \"timestamp\",   (string) latest mature wallet stake time, or Never\n"
+                    "  \"Stake counted\": n,             (numeric) mature wallet coinstake transactions counted\n"
+                    "  \"time took (ms)\": n             (numeric) report runtime\n"
+                    "}\n"
+                },
+                RPCExamples{
+                    HelpExampleCli("getstakereport", "")
+            + HelpExampleRpc("getstakereport", "")
+                },
+            }.ToString());
+    }
+
+    const int64_t start_ms = GetTimeMillis();
+    std::vector<StakePeriodRange> ranges = PrepareStakeReportRanges();
+    int counted = 0;
+    int64_t first_stake_time = -1;
+    int64_t latest_stake_time = -1;
+
+    auto locked_chain = pwallet->chain().lock();
+    LOCK2(cs_main, pwallet->cs_wallet);
+
+    for (const auto& item : pwallet->mapWallet) {
+        const CWalletTx& tx = item.second;
+        if (!IsTxCountedAsStaked(*locked_chain, tx)) {
+            continue;
+        }
+
+        counted++;
+        const int64_t tx_time = tx.GetTxTime();
+        const CAmount stake_amount = GetTxStakeAmount(*locked_chain, tx);
+        if (first_stake_time == -1 || tx_time < first_stake_time) {
+            first_stake_time = tx_time;
+        }
+        if (latest_stake_time == -1 || tx_time > latest_stake_time) {
+            latest_stake_time = tx_time;
+        }
+
+        for (StakePeriodRange& range : ranges) {
+            if (range.name == "Latest Stake") {
+                if (range.start == 0 || tx_time > range.start) {
+                    range.start = tx_time;
+                    range.total = stake_amount;
+                    range.count = 1;
+                }
+                continue;
+            }
+            if (tx_time >= range.start && tx_time <= range.end) {
+                range.total += stake_amount;
+                range.count++;
+            }
+        }
+    }
+
+    UniValue result(UniValue::VOBJ);
+    const int64_t wallet_age_days = first_stake_time > 0 ? std::max<int64_t>(1, (GetTime() - first_stake_time) / 86400) : 0;
+    for (const StakePeriodRange& range : ranges) {
+        if (range.name == "Latest Stake") {
+            continue;
+        }
+        result.pushKV(range.name, ValueFromAmount(range.total));
+
+        int avg_days = 0;
+        if (range.name == "Last 7 Days") avg_days = 7;
+        if (range.name == "Last 30 Days") avg_days = 30;
+        if (range.name == "Last 365 Days") avg_days = 365;
+        if (avg_days > 0) {
+            if (wallet_age_days > 0 && avg_days > wallet_age_days) {
+                avg_days = wallet_age_days;
+            }
+            result.pushKV(range.name + " Avg", ValueFromAmount(avg_days > 0 ? range.total / avg_days : 0));
+        }
+    }
+
+    result.pushKV("Latest Time", latest_stake_time > 0 ? FormatISO8601DateTime(latest_stake_time) : "Never");
+    result.pushKV("Stake counted", counted);
+    result.pushKV("time took (ms)", GetTimeMillis() - start_ms);
+    return result;
 }
 
 static UniValue listwalletdir(const JSONRPCRequest& request)
@@ -4178,6 +4612,8 @@ static const CRPCCommand commands[] =
     { "wallet",             "backupwallet",                     &backupwallet,                  {"destination"} },
     { "wallet",             "bumpfee",                          &bumpfee,                       {"txid", "options"} },
     { "wallet",             "createwallet",                     &createwallet,                  {"wallet_name", "disable_private_keys", "blank"} },
+    { "hidden",             "createcoinstake",                   &createcoinstake,                {"stake_time"} },
+    { "hidden",             "createposblock",                    &createposblock,                 {"stake_time", "submit", "max_tries"} },
     { "wallet",             "dumpprivkey",                      &dumpprivkey,                   {"address"}  },
     { "wallet",             "dumpwallet",                       &dumpwallet,                    {"filename"} },
     { "wallet",             "encryptwallet",                    &encryptwallet,                 {"passphrase"} },
@@ -4188,6 +4624,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "getrawchangeaddress",              &getrawchangeaddress,           {"address_type"} },
     { "wallet",             "getreceivedbyaddress",             &getreceivedbyaddress,          {"address","minconf"} },
     { "wallet",             "getreceivedbylabel",               &getreceivedbylabel,            {"label","minconf"} },
+    { "wallet",             "getstakereport",                   &getstakereport,                {} },
     { "wallet",             "gettransaction",                   &gettransaction,                {"txid","include_watchonly"} },
     { "wallet",             "getunconfirmedbalance",            &getunconfirmedbalance,         {} },
     { "wallet",             "getwalletinfo",                    &getwalletinfo,                 {} },
@@ -4222,7 +4659,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name"} },
     { "wallet",             "walletcreatefundedpsbt",           &walletcreatefundedpsbt,        {"inputs","outputs","locktime","options","bip32derivs"} },
     { "wallet",             "walletlock",                       &walletlock,                    {} },
-    { "wallet",             "walletpassphrase",                 &walletpassphrase,              {"passphrase","timeout"} },
+    { "wallet",             "walletpassphrase",                 &walletpassphrase,              {"passphrase","timeout","stakingonly"} },
     { "wallet",             "walletpassphrasechange",           &walletpassphrasechange,        {"oldpassphrase","newpassphrase"} },
     { "wallet",             "walletprocesspsbt",                &walletprocesspsbt,             {"psbt","sign","sighashtype","bip32derivs"} },
 };

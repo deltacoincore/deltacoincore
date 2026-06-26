@@ -23,6 +23,9 @@ static constexpr int NUM_GETBLOCKSTATS_PERCENTILES = 5;
  */
 double GetDifficulty(const CBlockIndex* blockindex);
 
+/** Estimate proof-of-stake kernel attempts per second from recent PoS blocks. */
+double GetPoSKernelPS();
+
 /** Callback for when block tip changed. */
 void RPCNotifyBlockChange(bool ibd, const CBlockIndex *);
 

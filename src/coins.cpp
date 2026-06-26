@@ -86,9 +86,14 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
 }
 
 void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, bool check) {
-    bool fCoinbase = tx.IsCoinBase();
+    // Coinstake outputs intentionally follow the same maturity gate as generated
+    // outputs without changing the serialized Coin layout for existing chainstate compatibility.
+    bool fCoinbase = tx.IsCoinBase() || tx.IsCoinStake();
     const uint256& txid = tx.GetHash();
     for (size_t i = 0; i < tx.vout.size(); ++i) {
+        if (tx.vout[i].IsEmpty()) {
+            continue;
+        }
         bool overwrite = check ? cache.HaveCoin(COutPoint(txid, i)) : fCoinbase;
         // Always set the possible_overwrite flag to AddCoin for coinbase txn, in order to correctly
         // deal with the pre-BIP30 occurrences of duplicate coinbase transactions.

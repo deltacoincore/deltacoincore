@@ -15,6 +15,8 @@
 
 #include <assert.h>
 
+#include <limits>
+
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 
@@ -75,6 +77,11 @@ public:
         consensus.nPowTargetSpacing = 5 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
+        consensus.nHybridPoSActivationHeight = 83100;
+        consensus.nStakeMinAge = 24 * 60 * 60;
+        consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
+        consensus.nStakeTimestampMask = 15;
+        consensus.nStakeReward = 333 * COIN;
         consensus.nRuleChangeActivationThreshold = 2; // 75% of 2
         consensus.nMinerConfirmationWindow = 8; // nPowTargetTimespan / nPowTargetSpacing * 4
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
@@ -121,7 +128,9 @@ public:
         // This is fine at runtime as we'll fall back to using them as a oneshot if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("node2.walletbuilders.com");
+        // DNS seeds should be operated by current Deltacoin maintainers.
+        // WalletBuilders seed infrastructure is intentionally not used.
+        vSeeds.emplace_back("node.deltacoincore.com");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,31);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
@@ -173,6 +182,11 @@ public:
         consensus.nPowTargetSpacing = 5 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = false;
+        consensus.nHybridPoSActivationHeight = Consensus::NO_POS_ACTIVATION_HEIGHT;
+        consensus.nStakeMinAge = 24 * 60 * 60;
+        consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
+        consensus.nStakeTimestampMask = 15;
+        consensus.nStakeReward = 333 * COIN;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
@@ -262,6 +276,11 @@ public:
         consensus.nPowTargetSpacing = 5 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
+        consensus.nHybridPoSActivationHeight = 1;
+        consensus.nStakeMinAge = 60;
+        consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
+        consensus.nStakeTimestampMask = 15;
+        consensus.nStakeReward = 333 * COIN;
         consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
         consensus.nMinerConfirmationWindow = 144; // Faster than normal for regtest (144 instead of 2016)
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
@@ -290,6 +309,7 @@ public:
         m_assumed_chain_state_size = 0;
 
         UpdateVersionBitsParametersFromArgs(args);
+        UpdatePoSActivationParametersFromArgs(args);
 
         genesis = CreateGenesisBlock(1619149751, 0, 0x207fffff, 1, 9999 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
@@ -337,6 +357,7 @@ public:
         consensus.vDeployments[d].nTimeout = nTimeout;
     }
     void UpdateVersionBitsParametersFromArgs(const ArgsManager& args);
+    void UpdatePoSActivationParametersFromArgs(const ArgsManager& args);
 };
 
 void CRegTestParams::UpdateVersionBitsParametersFromArgs(const ArgsManager& args)
@@ -369,6 +390,19 @@ void CRegTestParams::UpdateVersionBitsParametersFromArgs(const ArgsManager& args
             throw std::runtime_error(strprintf("Invalid deployment (%s)", vDeploymentParams[0]));
         }
     }
+}
+
+void CRegTestParams::UpdatePoSActivationParametersFromArgs(const ArgsManager& args)
+{
+    if (!args.IsArgSet("-posactivationheight")) return;
+
+    int64_t nActivationHeight;
+    const std::string value = args.GetArg("-posactivationheight", "");
+    if (!ParseInt64(value, &nActivationHeight) || nActivationHeight < 0 || nActivationHeight > std::numeric_limits<int>::max()) {
+        throw std::runtime_error(strprintf("Invalid regtest PoS activation height (%s)", value));
+    }
+    consensus.nHybridPoSActivationHeight = static_cast<int>(nActivationHeight);
+    LogPrintf("Setting regtest proof-of-stake activation height to %d\n", consensus.nHybridPoSActivationHeight);
 }
 
 static std::unique_ptr<const CChainParams> globalChainParams;

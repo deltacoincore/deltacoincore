@@ -169,6 +169,8 @@ enum BlockStatus: uint32_t {
     BLOCK_FAILED_MASK        =   BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,
 
     BLOCK_OPT_WITNESS       =   128, //!< block data in blk*.data was received with a witness-enforcing client
+
+    BLOCK_PROOF_OF_STAKE    =   256, //!< block is proof-of-stake after hybrid activation
 };
 
 /** The block chain is a tree shaped structure starting with the
@@ -228,6 +230,9 @@ public:
     //! (memory only) Maximum nTime in the chain up to and including this block.
     unsigned int nTimeMax;
 
+    //! (memory only) Chained modifier used by proof-of-stake kernels after hybrid activation.
+    uint256 nStakeModifier;
+
     void SetNull()
     {
         phashBlock = nullptr;
@@ -243,6 +248,7 @@ public:
         nStatus = 0;
         nSequenceId = 0;
         nTimeMax = 0;
+        nStakeModifier = uint256();
 
         nVersion       = 0;
         hashMerkleRoot = uint256();
@@ -341,6 +347,21 @@ public:
 
         std::sort(pbegin, pend);
         return pbegin[(pend - pbegin)/2];
+    }
+
+    bool IsProofOfStake() const
+    {
+        return nStatus & BLOCK_PROOF_OF_STAKE;
+    }
+
+    bool IsProofOfWork() const
+    {
+        return !IsProofOfStake();
+    }
+
+    void SetProofOfStake()
+    {
+        nStatus |= BLOCK_PROOF_OF_STAKE;
     }
 
     std::string ToString() const

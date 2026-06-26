@@ -18,6 +18,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 
+extern bool fWalletUnlockStakingOnly;
+
 AskPassphraseDialog::AskPassphraseDialog(Mode _mode, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::AskPassphraseDialog),
@@ -39,6 +41,8 @@ AskPassphraseDialog::AskPassphraseDialog(Mode _mode, QWidget *parent) :
     ui->passEdit1->installEventFilter(this);
     ui->passEdit2->installEventFilter(this);
     ui->passEdit3->installEventFilter(this);
+    ui->stakingCheckBox->setChecked(fWalletUnlockStakingOnly);
+    ui->stakingCheckBox->hide();
 
     switch(mode)
     {
@@ -50,6 +54,17 @@ AskPassphraseDialog::AskPassphraseDialog(Mode _mode, QWidget *parent) :
             break;
         case Unlock: // Ask passphrase
             ui->warningLabel->setText(tr("This operation needs your wallet passphrase to unlock the wallet."));
+            ui->stakingCheckBox->setChecked(false);
+            ui->passLabel2->hide();
+            ui->passEdit2->hide();
+            ui->passLabel3->hide();
+            ui->passEdit3->hide();
+            setWindowTitle(tr("Unlock wallet"));
+            break;
+        case UnlockStaking: // Ask passphrase and offer staking-only unlock
+            ui->warningLabel->setText(tr("This operation needs your wallet passphrase to unlock the wallet."));
+            ui->stakingCheckBox->setChecked(true);
+            ui->stakingCheckBox->show();
             ui->passLabel2->hide();
             ui->passEdit2->hide();
             ui->passLabel3->hide();
@@ -152,11 +167,13 @@ void AskPassphraseDialog::accept()
         }
         } break;
     case Unlock:
+    case UnlockStaking:
         try {
             if (!model->setWalletLocked(false, oldpass)) {
                 QMessageBox::critical(this, tr("Wallet unlock failed"),
                                       tr("The passphrase entered for the wallet decryption was incorrect."));
             } else {
+                fWalletUnlockStakingOnly = ui->stakingCheckBox->isChecked();
                 QDialog::accept(); // Success
             }
         } catch (const std::runtime_error& e) {
@@ -208,6 +225,7 @@ void AskPassphraseDialog::textChanged()
         acceptable = !ui->passEdit2->text().isEmpty() && !ui->passEdit3->text().isEmpty();
         break;
     case Unlock: // Old passphrase x1
+    case UnlockStaking:
     case Decrypt:
         acceptable = !ui->passEdit1->text().isEmpty();
         break;

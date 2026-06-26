@@ -389,6 +389,7 @@ public:
         return true;
     }
     CAmount getBalance() override { return m_wallet->GetBalance(); }
+    CAmount getStakeWeight() override { return m_wallet->GetStakeWeight(); }
     CAmount getAvailableBalance(const CCoinControl& coin_control) override
     {
         return m_wallet->GetAvailableBalance(&coin_control);

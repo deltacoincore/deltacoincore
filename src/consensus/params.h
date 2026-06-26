@@ -14,6 +14,8 @@
 
 namespace Consensus {
 
+static constexpr int NO_POS_ACTIVATION_HEIGHT = -1;
+
 enum DeploymentPos
 {
     DEPLOYMENT_TESTDUMMY,
@@ -74,6 +76,16 @@ struct Params {
     int64_t nPowTargetSpacing;
     int64_t nPowTargetTimespan;
     int64_t DifficultyAdjustmentInterval() const { return nPowTargetTimespan / nPowTargetSpacing; }
+    /** Disabled-by-default hybrid PoS planning parameters. */
+    int nHybridPoSActivationHeight;
+    int64_t nStakeMinAge;
+    int64_t nStakeTargetSpacing;
+    int64_t nStakeTimestampMask;
+    int64_t nStakeReward;
+    bool IsHybridPoSEnabled(int nHeight) const
+    {
+        return nHybridPoSActivationHeight != NO_POS_ACTIVATION_HEIGHT && nHeight >= nHybridPoSActivationHeight;
+    }
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
 };

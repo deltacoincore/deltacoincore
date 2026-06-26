@@ -117,6 +117,7 @@ private:
     UnitDisplayStatusBarControl* unitDisplayControl = nullptr;
     QLabel* labelWalletEncryptionIcon = nullptr;
     QLabel* labelWalletHDStatusIcon = nullptr;
+    QLabel* labelStakingIcon = nullptr;
     GUIUtil::ClickableLabel* labelProxyIcon = nullptr;
     GUIUtil::ClickableLabel* connectionsControl = nullptr;
     GUIUtil::ClickableLabel* labelBlocksIcon = nullptr;
@@ -143,6 +144,8 @@ private:
     QAction* encryptWalletAction = nullptr;
     QAction* backupWalletAction = nullptr;
     QAction* changePassphraseAction = nullptr;
+    QAction* unlockWalletAction = nullptr;
+    QAction* lockWalletAction = nullptr;
     QAction* aboutQtAction = nullptr;
     QAction* openRPCConsoleAction = nullptr;
     QAction* openAction = nullptr;
@@ -241,6 +244,7 @@ private:
      @see WalletModel::EncryptionStatus
      */
     void setHDStatus(bool privkeyDisabled, int hdEnabled);
+    void updateStakingIcon();
 
 public Q_SLOTS:
     bool handlePaymentRequest(const SendCoinsRecipient& recipient);

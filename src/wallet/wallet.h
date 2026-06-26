@@ -8,6 +8,7 @@
 #define BITCOIN_WALLET_WALLET_H
 
 #include <amount.h>
+#include <consensus/params.h>
 #include <interfaces/chain.h>
 #include <outputtype.h>
 #include <policy/feerate.h>
@@ -34,6 +35,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+extern bool fWalletUnlockStakingOnly;
 
 //! Responsible for reading and validating the -wallet arguments and verifying the wallet database.
 //! This function will perform salvage on the wallet if requested, as long as only one wallet is
@@ -66,6 +69,9 @@ bool AddWallet(const std::shared_ptr<CWallet>& wallet);
 bool RemoveWallet(const std::shared_ptr<CWallet>& wallet);
 bool HasWallets();
 std::vector<std::shared_ptr<CWallet>> GetWallets();
+
+/** Last automatic staking search interval, in seconds. */
+int64_t GetLastCoinStakeSearchInterval();
 std::shared_ptr<CWallet> GetWallet(const std::string& name);
 std::shared_ptr<CWallet> LoadWallet(interfaces::Chain& chain, const WalletLocation& location, std::string& error, std::string& warning);
 
@@ -951,6 +957,7 @@ public:
     CAmount GetBalance(const isminefilter& filter=ISMINE_SPENDABLE, const int min_depth=0) const;
     CAmount GetUnconfirmedBalance() const;
     CAmount GetImmatureBalance() const;
+    CAmount GetStakeWeight() const;
     CAmount GetUnconfirmedWatchOnlyBalance() const;
     CAmount GetImmatureWatchOnlyBalance() const;
     CAmount GetLegacyBalance(const isminefilter& filter, int minDepth) const;
@@ -964,6 +971,7 @@ public:
      */
     bool FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, int& nChangePosInOut, std::string& strFailReason, bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, CCoinControl);
     bool SignTransaction(CMutableTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool CreateCoinStake(interfaces::Chain::Lock& locked_chain, const Consensus::Params& consensusParams, unsigned int nBits, int64_t nStakeTime, CAmount nFees, CMutableTransaction& tx, std::string& strFailReason) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
      * Create a new transaction paying the recipients with a set of coins

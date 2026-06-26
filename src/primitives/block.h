@@ -18,6 +18,8 @@
  * in the block is a special one that creates a new coin owned by the creator
  * of the block.
  */
+static constexpr int32_t BLOCK_VERSION_PROOF_OF_STAKE = (1 << 8);
+
 class CBlockHeader
 {
 public:
@@ -69,6 +71,11 @@ public:
     {
         return (int64_t)nTime;
     }
+
+    bool HasProofOfStakeVersion() const
+    {
+        return (nVersion & BLOCK_VERSION_PROOF_OF_STAKE) != 0;
+    }
 };
 
 
@@ -118,6 +125,9 @@ public:
         block.nNonce         = nNonce;
         return block;
     }
+
+    bool IsProofOfStake() const;
+    bool IsProofOfWork() const;
 
     std::string ToString() const;
 };

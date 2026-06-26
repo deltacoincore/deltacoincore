@@ -79,6 +79,36 @@ double GetDifficulty(const CBlockIndex* blockindex)
     return dDiff;
 }
 
+double GetPoSKernelPS()
+{
+    constexpr int nPoSInterval = 72;
+    double dStakeKernelsTriedAvg = 0;
+    int nStakesHandled = 0;
+    int64_t nStakesTime = 0;
+
+    LOCK(cs_main);
+    CBlockIndex* pindex = chainActive.Tip();
+    CBlockIndex* pindexPrevStake = nullptr;
+    while (pindex && nStakesHandled < nPoSInterval) {
+        if (pindex->IsProofOfStake()) {
+            if (pindexPrevStake) {
+                dStakeKernelsTriedAvg += GetDifficulty(pindexPrevStake) * 4294967296.0;
+                nStakesTime += pindexPrevStake->GetBlockTime() - pindex->GetBlockTime();
+                nStakesHandled++;
+            }
+            pindexPrevStake = pindex;
+        }
+
+        pindex = pindex->pprev;
+    }
+
+    if (nStakesTime <= 0) {
+        return 0;
+    }
+
+    return (dStakeKernelsTriedAvg / nStakesTime) * 16;
+}
+
 static int ComputeNextBlockAndDepth(const CBlockIndex* tip, const CBlockIndex* blockindex, const CBlockIndex*& next)
 {
     next = tip->GetAncestor(blockindex->nHeight + 1);

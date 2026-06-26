@@ -11,6 +11,7 @@
 #include <serialize.h>
 #include <util/strencodings.h>
 
+#include <cctype>
 #include <stdarg.h>
 
 #if (defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__))
@@ -1205,18 +1206,33 @@ int GetNumCores()
     return std::thread::hardware_concurrency();
 }
 
+static std::string CopyrightRangePrefix(const std::string& strPrefix, const std::string& strStartYear)
+{
+    const size_t yearStart = strPrefix.find_first_of("0123456789");
+    if (yearStart == std::string::npos || strPrefix.size() < yearStart + 4) {
+        return strPrefix;
+    }
+
+    for (size_t i = 0; i < 4; ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(strPrefix[yearStart + i]))) {
+            return strPrefix;
+        }
+    }
+
+    return strPrefix.substr(0, yearStart) + strStartYear + "-" + strPrefix.substr(yearStart);
+}
+
 std::string CopyrightHolders(const std::string& strPrefix)
 {
     const auto copyright_devs = strprintf(_(COPYRIGHT_HOLDERS), COPYRIGHT_HOLDERS_SUBSTITUTION);
-    std::string strCopyrightHolders = strPrefix + copyright_devs;
+    std::string strCopyrightHolders = CopyrightRangePrefix(strPrefix, "2021") + copyright_devs;
 
     // Make sure Bitcoin Core copyright is not removed by accident
     if (copyright_devs.find("Bitcoin Core") == std::string::npos) {
-        std::string strYear = strPrefix;
-        strYear.replace(strYear.find("2021"), sizeof("2021")-1, "2011-2021");
-        strCopyrightHolders += "\n" + strYear + "The Litecoin Core developers";
-        strYear.replace(strYear.find("2011-2021"), sizeof("2011-2021")-1, "2009-2021");
-        strCopyrightHolders += "\n" + strYear + "The Bitcoin Core developers";
+        const std::string strLitecoinPrefix = CopyrightRangePrefix(strPrefix, "2011");
+        const std::string strBitcoinPrefix = CopyrightRangePrefix(strPrefix, "2009");
+        strCopyrightHolders += "\n" + strLitecoinPrefix + "The Litecoin Core developers";
+        strCopyrightHolders += "\n" + strBitcoinPrefix + "The Bitcoin Core developers";
     }
     return strCopyrightHolders;
 }

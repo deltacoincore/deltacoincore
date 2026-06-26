@@ -197,6 +197,9 @@ public:
     //! Get balance.
     virtual CAmount getBalance() = 0;
 
+    //! Get mature stakeable wallet weight.
+    virtual CAmount getStakeWeight() = 0;
+
     //! Get available balance.
     virtual CAmount getAvailableBalance(const CCoinControl& coin_control) = 0;
 

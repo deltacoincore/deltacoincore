@@ -4,19 +4,148 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chain.h>
 #include <chainparams.h>
+#include <consensus/merkle.h>
+#include <consensus/validation.h>
 #include <init.h>
 #include <interfaces/chain.h>
 #include <net.h>
+#include <pow.h>
 #include <scheduler.h>
+#include <script/script.h>
 #include <outputtype.h>
+#include <timedata.h>
 #include <util/system.h>
 #include <util/moneystr.h>
 #include <validation.h>
+#include <versionbits.h>
 #include <walletinitinterface.h>
 #include <wallet/rpcwallet.h>
 #include <wallet/wallet.h>
 #include <wallet/walletutil.h>
+
+#include <atomic>
+
+static std::atomic<bool> g_stake_worker_busy{false};
+static std::atomic<int64_t> g_last_coin_stake_search_time{0};
+static std::atomic<int64_t> g_last_coin_stake_search_interval{0};
+
+int64_t GetLastCoinStakeSearchInterval()
+{
+    return g_last_coin_stake_search_interval.load();
+}
+
+static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::string& strFailReason)
+{
+    auto locked_chain = wallet.chain().lock();
+    LOCK2(cs_main, wallet.cs_wallet);
+
+    CBlockIndex* pindexPrev = chainActive.Tip();
+    if (pindexPrev == nullptr) {
+        strFailReason = "No active chain tip";
+        return false;
+    }
+
+    const CChainParams& chainparams = Params();
+    const Consensus::Params& consensusParams = chainparams.GetConsensus();
+    const int nHeight = pindexPrev->nHeight + 1;
+    if (!consensusParams.IsHybridPoSEnabled(nHeight)) {
+        strFailReason = "Proof-of-stake is not active for the next block";
+        return false;
+    }
+
+    int64_t nStakeTime = std::max<int64_t>(GetAdjustedTime(), pindexPrev->GetMedianTimePast() + 1);
+    if (consensusParams.nStakeTimestampMask > 0) {
+        nStakeTime &= ~consensusParams.nStakeTimestampMask;
+        if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
+            nStakeTime += consensusParams.nStakeTimestampMask + 1;
+        }
+    }
+    const int64_t nLastSearchTime = g_last_coin_stake_search_time.exchange(nStakeTime);
+    g_last_coin_stake_search_interval.store(nLastSearchTime > 0 ? std::max<int64_t>(0, nStakeTime - nLastSearchTime) : 0);
+
+    CBlockHeader header;
+    header.hashPrevBlock = pindexPrev->GetBlockHash();
+    header.nTime = nStakeTime;
+    header.nBits = GetNextWorkRequired(pindexPrev, &header, consensusParams);
+
+    CMutableTransaction coinstakeTx;
+    if (!wallet.CreateCoinStake(*locked_chain, consensusParams, header.nBits, nStakeTime, 0, coinstakeTx, strFailReason)) {
+        return false;
+    }
+
+    CMutableTransaction coinbaseTx;
+    coinbaseTx.vin.resize(1);
+    coinbaseTx.vin[0].prevout.SetNull();
+    coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
+    CTxOut emptyOutput;
+    emptyOutput.SetEmpty();
+    coinbaseTx.vout.push_back(emptyOutput);
+
+    block.SetNull();
+    block.nVersion = ComputeBlockVersion(pindexPrev, consensusParams);
+    block.nVersion |= BLOCK_VERSION_PROOF_OF_STAKE;
+    if (chainparams.MineBlocksOnDemand()) {
+        block.nVersion = gArgs.GetArg("-blockversion", block.nVersion);
+        block.nVersion |= BLOCK_VERSION_PROOF_OF_STAKE;
+    }
+    block.hashPrevBlock = pindexPrev->GetBlockHash();
+    block.nTime = nStakeTime;
+    block.nBits = header.nBits;
+    block.nNonce = 0;
+    block.vtx.push_back(MakeTransactionRef(std::move(coinbaseTx)));
+    block.vtx.push_back(MakeTransactionRef(std::move(coinstakeTx)));
+    GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+
+    CValidationState state;
+    if (!TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
+        strFailReason = strprintf("TestBlockValidity failed: %s", FormatStateMessage(state));
+        return false;
+    }
+
+    strFailReason.clear();
+    return true;
+}
+
+static void StakeWallets()
+{
+    if (!gArgs.GetBoolArg("-staking", true)) {
+        return;
+    }
+
+    bool expected = false;
+    if (!g_stake_worker_busy.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    try {
+        for (const std::shared_ptr<CWallet>& pwallet : GetWallets()) {
+            if (!pwallet || pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) || pwallet->IsLocked()) {
+                continue;
+            }
+
+            CBlock block;
+            std::string strFailReason;
+            if (!TryCreateProofOfStakeBlock(*pwallet, block, strFailReason)) {
+                continue;
+            }
+
+            bool fAccepted = false;
+            std::shared_ptr<const CBlock> shared_block = std::make_shared<const CBlock>(block);
+            if (ProcessNewBlock(Params(), shared_block, true, &fAccepted) && fAccepted) {
+                LogPrintf("StakeWallets: proof-of-stake block accepted, hash=%s\n", block.GetHash().ToString());
+                break;
+            }
+            LogPrintf("StakeWallets: proof-of-stake block was not accepted, hash=%s\n", block.GetHash().ToString());
+        }
+    } catch (const std::exception& e) {
+        LogPrintf("StakeWallets: staking pass failed safely: %s\n", e.what());
+    }
+
+    g_stake_worker_busy.store(false);
+}
 
 class WalletInit : public WalletInitInterface {
 public:
@@ -55,6 +184,7 @@ void WalletInit::AddWalletOptions() const
     gArgs.AddArg("-rescan", "Rescan the block chain for missing wallet transactions on startup", false, OptionsCategory::WALLET);
     gArgs.AddArg("-salvagewallet", "Attempt to recover private keys from a corrupt wallet on startup", false, OptionsCategory::WALLET);
     gArgs.AddArg("-spendzeroconfchange", strprintf("Spend unconfirmed change when sending transactions (default: %u)", DEFAULT_SPEND_ZEROCONF_CHANGE), false, OptionsCategory::WALLET);
+    gArgs.AddArg("-staking=<n>", strprintf("Enable automatic proof-of-stake minting when hybrid PoS is active and the wallet is unlocked (default: %u)", true), false, OptionsCategory::WALLET);
     gArgs.AddArg("-txconfirmtarget=<n>", strprintf("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)", DEFAULT_TX_CONFIRM_TARGET), false, OptionsCategory::WALLET);
     gArgs.AddArg("-upgradewallet", "Upgrade wallet to latest format on startup", false, OptionsCategory::WALLET);
     gArgs.AddArg("-wallet=<path>", "Specify wallet database path. Can be specified multiple times to load multiple wallets. Path is interpreted relative to <walletdir> if it is not absolute, and will be created if it does not exist (as a directory containing a wallet.dat file and log files). For backwards compatibility this will also accept names of existing data files in <walletdir>.)", false, OptionsCategory::WALLET);
@@ -210,6 +340,7 @@ void StartWallets(CScheduler& scheduler)
 
     // Run a thread to flush wallet periodically
     scheduler.scheduleEvery(MaybeCompactWalletDB, 500);
+    scheduler.scheduleEvery(StakeWallets, 16000);
 }
 
 void FlushWallets()

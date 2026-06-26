@@ -97,6 +97,11 @@ unsigned int CTransaction::GetTotalSize() const
     return ::GetSerializeSize(*this, PROTOCOL_VERSION);
 }
 
+bool CTransaction::IsCoinStake() const
+{
+    return !IsCoinBase() && !vin.empty() && vout.size() >= 2 && vout[0].IsEmpty();
+}
+
 std::string CTransaction::ToString() const
 {
     std::string str;
