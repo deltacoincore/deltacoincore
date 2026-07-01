@@ -222,6 +222,32 @@ static UniValue getnewaddress(const JSONRPCRequest& request)
     return EncodeDestination(dest);
 }
 
+static UniValue getaccountaddress(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 1)
+        throw std::runtime_error(
+            RPCHelpMan{"getaccountaddress",
+                "\nDEPRECATED. Returns a new Deltacoin receiving address for legacy account-compatible callers.\n"
+                "This is retained for older pool software and maps the account value to the modern label field.\n",
+                {
+                    {"account", RPCArg::Type::STR, /* default */ "\"\"", "The legacy account name, used as the address label."},
+                },
+                RPCResult{
+            "\"address\"    (string) The new deltacoin address\n"
+                },
+                RPCExamples{
+                    HelpExampleCli("getaccountaddress", "\"pool\"")
+            + HelpExampleRpc("getaccountaddress", "\"pool\"")
+                },
+            }.ToString());
+
+    JSONRPCRequest forwarded(request);
+    forwarded.params = UniValue(UniValue::VARR);
+    forwarded.params.push_back(request.params[0].isNull() ? UniValue("") : request.params[0]);
+    forwarded.params.push_back(UniValue("legacy"));
+    return getnewaddress(forwarded);
+}
+
 static UniValue getrawchangeaddress(const JSONRPCRequest& request)
 {
     std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
@@ -4619,6 +4645,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "encryptwallet",                    &encryptwallet,                 {"passphrase"} },
     { "wallet",             "getaddressesbylabel",              &getaddressesbylabel,           {"label"} },
     { "wallet",             "getaddressinfo",                   &getaddressinfo,                {"address"} },
+    { "wallet",             "getaccountaddress",                &getaccountaddress,             {"account"} },
     { "wallet",             "getbalance",                       &getbalance,                    {"dummy","minconf","include_watchonly"} },
     { "wallet",             "getnewaddress",                    &getnewaddress,                 {"label","address_type"} },
     { "wallet",             "getrawchangeaddress",              &getrawchangeaddress,           {"address_type"} },

@@ -574,9 +574,11 @@ static UniValue getblocktemplate(const JSONRPCRequest& request)
     }
 
     const struct VBDeploymentInfo& segwit_info = VersionBitsDeploymentInfo[Consensus::DEPLOYMENT_SEGWIT];
-    // GBT must be called with 'segwit' set in the rules
+    // Older pool software may omit the modern BIP9 rules list. Treat that as
+    // an explicit segwit-capable request so legacy miners still receive a
+    // valid template without changing consensus validation rules.
     if (setClientRules.count(segwit_info.name) != 1) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the segwit rule set (call with {\"rules\": [\"segwit\"]})");
+        setClientRules.insert(segwit_info.name);
     }
 
     // Update block
