@@ -78,6 +78,19 @@ static UniValue GetNetworkHashPS(int lookup, int height) {
     return workDiff.getdouble() / timeDiff;
 }
 
+static const CBlockIndex* FindLastBlockByProofType(const CBlockIndex* pindex, bool fProofOfStake)
+{
+    while (pindex && pindex->IsProofOfStake() != fProofOfStake) {
+        pindex = pindex->pprev;
+    }
+    return pindex;
+}
+
+static double GetDifficultyOrZero(const CBlockIndex* blockindex)
+{
+    return blockindex ? GetDifficulty(blockindex) : 0.0;
+}
+
 static UniValue getnetworkhashps(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() > 2)
@@ -202,7 +215,11 @@ static UniValue getmininginfo(const JSONRPCRequest& request)
                     "  \"blocks\": nnn,             (numeric) The current block\n"
                     "  \"currentblockweight\": nnn, (numeric, optional) The block weight of the last assembled block (only present if a block was ever assembled)\n"
                     "  \"currentblocktx\": nnn,     (numeric, optional) The number of block transactions of the last assembled block (only present if a block was ever assembled)\n"
-                    "  \"difficulty\": xxx.xxxxx    (numeric) The current difficulty\n"
+                    "  \"difficulty\": xxx.xxxxx    (numeric) The current proof-of-work difficulty\n"
+                    "  \"difficulty_pow\": xxx.xxxxx (numeric) The latest proof-of-work block difficulty\n"
+                    "  \"difficulty_pos\": xxx.xxxxx (numeric) The latest proof-of-stake block difficulty, or 0 before PoS\n"
+                    "  \"hybrid_pos_activationheight\": n (numeric) Configured PoS activation height\n"
+                    "  \"hybrid_difficulty_splitheight\": n (numeric) Height where PoW and PoS retarget independently\n"
                     "  \"networkhashps\": nnn,      (numeric) The network hashes per second\n"
                     "  \"pooledtx\": n              (numeric) The size of the mempool\n"
                     "  \"chain\": \"xxxx\",           (string) current network name as defined in BIP70 (main, test, regtest)\n"
@@ -222,7 +239,14 @@ static UniValue getmininginfo(const JSONRPCRequest& request)
     obj.pushKV("blocks",           (int)chainActive.Height());
     if (BlockAssembler::m_last_block_weight) obj.pushKV("currentblockweight", *BlockAssembler::m_last_block_weight);
     if (BlockAssembler::m_last_block_num_txs) obj.pushKV("currentblocktx", *BlockAssembler::m_last_block_num_txs);
-    obj.pushKV("difficulty",       (double)GetDifficulty(chainActive.Tip()));
+    const CBlockIndex* tip = chainActive.Tip();
+    const CBlockIndex* lastPow = FindLastBlockByProofType(tip, false);
+    const CBlockIndex* lastPos = FindLastBlockByProofType(tip, true);
+    obj.pushKV("difficulty",       (double)GetDifficulty(lastPow ? lastPow : tip));
+    obj.pushKV("difficulty_pow",   GetDifficultyOrZero(lastPow));
+    obj.pushKV("difficulty_pos",   GetDifficultyOrZero(lastPos));
+    obj.pushKV("hybrid_pos_activationheight", Params().GetConsensus().nHybridPoSActivationHeight);
+    obj.pushKV("hybrid_difficulty_splitheight", Params().GetConsensus().nHybridDifficultySplitHeight);
     obj.pushKV("networkhashps",    getnetworkhashps(request));
     obj.pushKV("pooledtx",         (uint64_t)mempool.size());
     obj.pushKV("chain",            Params().NetworkIDString());
@@ -243,6 +267,7 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
                     "  \"staking\": true|false,         (boolean) Whether local automatic staking is enabled\n"
                     "  \"active\": true|false,          (boolean) Whether PoS is active for the next block\n"
                     "  \"activationheight\": n,         (numeric) Configured PoS activation height, or -1 when disabled\n"
+                    "  \"difficulty_splitheight\": n,   (numeric) Height where PoW and PoS retarget independently\n"
                     "  \"nextblockheight\": n,          (numeric) Next block height\n"
                     "  \"minimumstakeage\": n,          (numeric) Minimum stake age in seconds\n"
                     "  \"targetspacing\": n,            (numeric) Target PoS spacing in seconds\n"
@@ -279,7 +304,8 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
         LOCK(cs_main);
         nNextHeight = chainActive.Height() + 1;
         if (chainActive.Tip()) {
-            dDifficulty = GetDifficulty(chainActive.Tip());
+            const CBlockIndex* pindexLastStake = FindLastBlockByProofType(chainActive.Tip(), true);
+            dDifficulty = GetDifficulty(pindexLastStake ? pindexLastStake : chainActive.Tip());
         }
     }
     const uint64_t nNetworkWeight = static_cast<uint64_t>(GetPoSKernelPS());
@@ -294,6 +320,7 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
     obj.pushKV("staking", gArgs.GetBoolArg("-staking", true));
     obj.pushKV("active", fPoSActive);
     obj.pushKV("activationheight", consensusParams.nHybridPoSActivationHeight);
+    obj.pushKV("difficulty_splitheight", consensusParams.nHybridDifficultySplitHeight);
     obj.pushKV("nextblockheight", nNextHeight);
     obj.pushKV("minimumstakeage", consensusParams.nStakeMinAge);
     obj.pushKV("targetspacing", consensusParams.nStakeTargetSpacing);

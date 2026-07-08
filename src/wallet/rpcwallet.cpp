@@ -2719,6 +2719,7 @@ static UniValue createposblock(const JSONRPCRequest& request)
 
             CBlockHeader header;
             header.hashPrevBlock = pindexPrev->GetBlockHash();
+            header.nVersion = ComputeBlockVersion(pindexPrev, consensusParams) | BLOCK_VERSION_PROOF_OF_STAKE;
             header.nTime = nCandidateTime;
             header.nBits = GetNextWorkRequired(pindexPrev, &header, consensusParams);
 

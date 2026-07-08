@@ -79,6 +79,19 @@ double GetDifficulty(const CBlockIndex* blockindex)
     return dDiff;
 }
 
+static const CBlockIndex* FindLastBlockByProofType(const CBlockIndex* pindex, bool fProofOfStake)
+{
+    while (pindex && pindex->IsProofOfStake() != fProofOfStake) {
+        pindex = pindex->pprev;
+    }
+    return pindex;
+}
+
+static double GetDifficultyOrZero(const CBlockIndex* blockindex)
+{
+    return blockindex ? GetDifficulty(blockindex) : 0.0;
+}
+
 double GetPoSKernelPS()
 {
     constexpr int nPoSInterval = 72;
@@ -403,7 +416,8 @@ static UniValue getdifficulty(const JSONRPCRequest& request)
             }.ToString());
 
     LOCK(cs_main);
-    return GetDifficulty(chainActive.Tip());
+    const CBlockIndex* pindex = FindLastBlockByProofType(chainActive.Tip(), false);
+    return GetDifficulty(pindex ? pindex : chainActive.Tip());
 }
 
 static std::string EntryDescriptionString()
@@ -1307,7 +1321,11 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
             "  \"blocks\": xxxxxx,             (numeric) the current number of blocks processed in the server\n"
             "  \"headers\": xxxxxx,            (numeric) the current number of headers we have validated\n"
             "  \"bestblockhash\": \"...\",       (string) the hash of the currently best block\n"
-            "  \"difficulty\": xxxxxx,         (numeric) the current difficulty\n"
+            "  \"difficulty\": xxxxxx,         (numeric) the current tip difficulty\n"
+            "  \"difficulty_pow\": xxxxxx,     (numeric) latest proof-of-work block difficulty\n"
+            "  \"difficulty_pos\": xxxxxx,     (numeric) latest proof-of-stake block difficulty, or 0 before PoS\n"
+            "  \"hybrid_pos_activationheight\": n (numeric) configured PoS activation height\n"
+            "  \"hybrid_difficulty_splitheight\": n (numeric) height where PoW and PoS retarget independently\n"
             "  \"mediantime\": xxxxxx,         (numeric) median time for the current best block\n"
             "  \"verificationprogress\": xxxx, (numeric) estimate of verification progress [0..1]\n"
             "  \"initialblockdownload\": xxxx, (bool) (debug information) estimate of whether this node is in Initial Block Download mode.\n"
@@ -1360,6 +1378,8 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     obj.pushKV("headers",               pindexBestHeader ? pindexBestHeader->nHeight : -1);
     obj.pushKV("bestblockhash",         tip->GetBlockHash().GetHex());
     obj.pushKV("difficulty",            (double)GetDifficulty(tip));
+    obj.pushKV("difficulty_pow",        GetDifficultyOrZero(FindLastBlockByProofType(tip, false)));
+    obj.pushKV("difficulty_pos",        GetDifficultyOrZero(FindLastBlockByProofType(tip, true)));
     obj.pushKV("mediantime",            (int64_t)tip->GetMedianTimePast());
     obj.pushKV("verificationprogress",  GuessVerificationProgress(Params().TxData(), tip));
     obj.pushKV("initialblockdownload",  IsInitialBlockDownload());
@@ -1384,6 +1404,8 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     }
 
     const Consensus::Params& consensusParams = Params().GetConsensus();
+    obj.pushKV("hybrid_pos_activationheight", consensusParams.nHybridPoSActivationHeight);
+    obj.pushKV("hybrid_difficulty_splitheight", consensusParams.nHybridDifficultySplitHeight);
     UniValue softforks(UniValue::VARR);
     UniValue bip9_softforks(UniValue::VOBJ);
     softforks.push_back(SoftForkDesc("bip34", 2, tip, consensusParams));

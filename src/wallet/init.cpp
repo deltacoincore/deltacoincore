@@ -125,6 +125,7 @@ static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::stri
 
     CBlockHeader header;
     header.hashPrevBlock = pindexPrev->GetBlockHash();
+    header.nVersion = ComputeBlockVersion(pindexPrev, consensusParams) | BLOCK_VERSION_PROOF_OF_STAKE;
     header.nTime = nStakeTime;
     header.nBits = GetNextWorkRequired(pindexPrev, &header, consensusParams);
 

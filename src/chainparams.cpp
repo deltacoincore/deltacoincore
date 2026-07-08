@@ -78,6 +78,7 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.nHybridPoSActivationHeight = 83100;
+        consensus.nHybridDifficultySplitHeight = 85000;
         consensus.nStakeMinAge = 24 * 60 * 60;
         consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
         consensus.nStakeTimestampMask = 15;
@@ -183,6 +184,7 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = false;
         consensus.nHybridPoSActivationHeight = Consensus::NO_POS_ACTIVATION_HEIGHT;
+        consensus.nHybridDifficultySplitHeight = Consensus::NO_POS_ACTIVATION_HEIGHT;
         consensus.nStakeMinAge = 24 * 60 * 60;
         consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
         consensus.nStakeTimestampMask = 15;
@@ -277,6 +279,7 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
         consensus.nHybridPoSActivationHeight = 1;
+        consensus.nHybridDifficultySplitHeight = 1;
         consensus.nStakeMinAge = 60;
         consensus.nStakeTargetSpacing = consensus.nPowTargetSpacing;
         consensus.nStakeTimestampMask = 15;
@@ -402,6 +405,7 @@ void CRegTestParams::UpdatePoSActivationParametersFromArgs(const ArgsManager& ar
         throw std::runtime_error(strprintf("Invalid regtest PoS activation height (%s)", value));
     }
     consensus.nHybridPoSActivationHeight = static_cast<int>(nActivationHeight);
+    consensus.nHybridDifficultySplitHeight = static_cast<int>(nActivationHeight);
     LogPrintf("Setting regtest proof-of-stake activation height to %d\n", consensus.nHybridPoSActivationHeight);
 }
 

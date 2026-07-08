@@ -78,6 +78,7 @@ struct Params {
     int64_t DifficultyAdjustmentInterval() const { return nPowTargetTimespan / nPowTargetSpacing; }
     /** Disabled-by-default hybrid PoS planning parameters. */
     int nHybridPoSActivationHeight;
+    int nHybridDifficultySplitHeight;
     int64_t nStakeMinAge;
     int64_t nStakeTargetSpacing;
     int64_t nStakeTimestampMask;
@@ -85,6 +86,10 @@ struct Params {
     bool IsHybridPoSEnabled(int nHeight) const
     {
         return nHybridPoSActivationHeight != NO_POS_ACTIVATION_HEIGHT && nHeight >= nHybridPoSActivationHeight;
+    }
+    bool IsHybridDifficultySplitEnabled(int nHeight) const
+    {
+        return nHybridDifficultySplitHeight != NO_POS_ACTIVATION_HEIGHT && nHeight >= nHybridDifficultySplitHeight;
     }
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;

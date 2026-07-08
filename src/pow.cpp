@@ -11,10 +11,54 @@
 #include <primitives/block.h>
 #include <uint256.h>
 
+static const CBlockIndex* FindPreviousBlockOfType(const CBlockIndex* pindex, bool fProofOfStake)
+{
+    while (pindex && pindex->IsProofOfStake() != fProofOfStake) {
+        pindex = pindex->pprev;
+    }
+    return pindex;
+}
+
+static const CBlockIndex* FindNthPreviousBlockOfType(const CBlockIndex* pindex, bool fProofOfStake, int nCount)
+{
+    const CBlockIndex* pindexWalk = pindex;
+    for (int i = 0; i < nCount && pindexWalk; ++i) {
+        pindexWalk = FindPreviousBlockOfType(pindexWalk->pprev, fProofOfStake);
+    }
+    return pindexWalk;
+}
+
+static unsigned int GetNextTypeSpecificWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock, const Consensus::Params& params)
+{
+    const bool fProofOfStake = pblock && pblock->HasProofOfStakeVersion();
+    const CBlockIndex* pindexLastOfType = FindPreviousBlockOfType(pindexLast, fProofOfStake);
+    if (!pindexLastOfType) {
+        return pindexLast->nBits;
+    }
+
+    if (pblock && params.fPowAllowMinDifficultyBlocks &&
+        pblock->GetBlockTime() > pindexLastOfType->GetBlockTime() + params.nPowTargetSpacing * 2) {
+        return UintToArith256(params.powLimit).GetCompact();
+    }
+
+    const CBlockIndex* pindexFirstOfType = FindNthPreviousBlockOfType(
+        pindexLastOfType, fProofOfStake, params.DifficultyAdjustmentInterval());
+    if (!pindexFirstOfType) {
+        return pindexLastOfType->nBits;
+    }
+
+    return CalculateNextWorkRequired(pindexLastOfType, pindexFirstOfType->GetBlockTime(), params);
+}
+
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
     assert(pindexLast != nullptr);
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
+    const int nHeight = pindexLast->nHeight + 1;
+
+    if (params.IsHybridDifficultySplitEnabled(nHeight)) {
+        return GetNextTypeSpecificWorkRequired(pindexLast, pblock, params);
+    }
 
     // Only change once per difficulty adjustment interval
     if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
