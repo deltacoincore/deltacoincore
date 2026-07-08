@@ -248,6 +248,7 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
                     "  \"targetspacing\": n,            (numeric) Target PoS spacing in seconds\n"
                     "  \"timestampmask\": n,            (numeric) Required timestamp mask\n"
                     "  \"reward\": n.nnnnnnnn,          (numeric) Per-block stake reward\n"
+                    "  \"difficulty\": n.nnnnnnnn,      (numeric) Current compact target difficulty used by staking\n"
                     "  \"search-interval\": n,          (numeric) Last local staking search interval in seconds\n"
                     "  \"weight\": n,                   (numeric) Local mature staking weight in base units\n"
                     "  \"netstakeweight\": n,           (numeric) Estimated network staking weight\n"
@@ -273,9 +274,13 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
 #endif
     const Consensus::Params& consensusParams = Params().GetConsensus();
     int nNextHeight = 0;
+    double dDifficulty = 0;
     {
         LOCK(cs_main);
         nNextHeight = chainActive.Height() + 1;
+        if (chainActive.Tip()) {
+            dDifficulty = GetDifficulty(chainActive.Tip());
+        }
     }
     const uint64_t nNetworkWeight = static_cast<uint64_t>(GetPoSKernelPS());
     const bool fPoSActive = consensusParams.IsHybridPoSEnabled(nNextHeight);
@@ -294,6 +299,7 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
     obj.pushKV("targetspacing", consensusParams.nStakeTargetSpacing);
     obj.pushKV("timestampmask", consensusParams.nStakeTimestampMask);
     obj.pushKV("reward", ValueFromAmount(consensusParams.nStakeReward));
+    obj.pushKV("difficulty", dDifficulty);
     obj.pushKV("search-interval", nSearchInterval);
     obj.pushKV("weight", nWeight);
     obj.pushKV("netstakeweight", nNetworkWeight);

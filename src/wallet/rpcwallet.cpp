@@ -15,6 +15,7 @@
 #include <httpserver.h>
 #include <init.h>
 #include <interfaces/chain.h>
+#include <miner.h>
 #include <validation.h>
 #include <key_io.h>
 #include <net.h>
@@ -56,6 +57,31 @@
 static const std::string WALLET_ENDPOINT_BASE = "/wallet/";
 
 bool fWalletUnlockStakingOnly = false;
+
+static void FinalizeProofOfStakeBlock(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+{
+    GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+}
+
+static void AddMempoolTransactionsToProofOfStakeBlock(CBlock& block, const CChainParams& chainparams)
+{
+    try {
+        std::unique_ptr<CBlockTemplate> blockTemplate = BlockAssembler(chainparams).CreateNewBlock(CScript());
+        if (!blockTemplate) {
+            return;
+        }
+
+        for (size_t i = 1; i < blockTemplate->block.vtx.size(); ++i) {
+            const CTransactionRef& tx = blockTemplate->block.vtx[i];
+            if (!tx->IsCoinBase() && !tx->IsCoinStake()) {
+                block.vtx.push_back(tx);
+            }
+        }
+    } catch (const std::exception& e) {
+        LogPrintf("%s: unable to assemble mempool transactions for PoS block: %s\n", __func__, e.what());
+    }
+}
 
 bool GetWalletNameFromJSONRPCRequest(const JSONRPCRequest& request, std::string& wallet_name)
 {
@@ -243,7 +269,7 @@ static UniValue getaccountaddress(const JSONRPCRequest& request)
 
     JSONRPCRequest forwarded(request);
     forwarded.params = UniValue(UniValue::VARR);
-    forwarded.params.push_back(request.params[0].isNull() ? UniValue("") : request.params[0]);
+    forwarded.params.push_back(request.params.size() == 0 || request.params[0].isNull() ? UniValue("") : request.params[0]);
     forwarded.params.push_back(UniValue("legacy"));
     return getnewaddress(forwarded);
 }
@@ -2724,12 +2750,29 @@ static UniValue createposblock(const JSONRPCRequest& request)
             block.nNonce = 0;
             block.vtx.push_back(MakeTransactionRef(std::move(coinbaseTx)));
             block.vtx.push_back(MakeTransactionRef(std::move(coinstakeTx)));
-            GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
-            block.hashMerkleRoot = BlockMerkleRoot(block);
+            AddMempoolTransactionsToProofOfStakeBlock(block, chainparams);
 
-            CValidationState state;
-            if (!TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
+            bool fValidPoSBlock = false;
+            while (true) {
+                FinalizeProofOfStakeBlock(block, pindexPrev, consensusParams);
+
+                CValidationState state;
+                if (TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
+                    fValidPoSBlock = true;
+                    strFailReason.clear();
+                    break;
+                }
+
                 strFailReason = strprintf("TestBlockValidity failed: %s", FormatStateMessage(state));
+                if (block.vtx.size() <= 2) {
+                    break;
+                }
+
+                LogPrintf("%s: dropping mempool transaction from PoS candidate after validation failure: %s\n", __func__, strFailReason);
+                block.vtx.pop_back();
+            }
+
+            if (!fValidPoSBlock) {
                 continue;
             }
 

@@ -1775,6 +1775,9 @@ public:
 
     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const override
     {
+        if (bit == 8 && (pindex->nVersion & BLOCK_VERSION_PROOF_OF_STAKE) != 0) {
+            return false;
+        }
         return ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
                ((pindex->nVersion >> bit) & 1) != 0 &&
                ((ComputeBlockVersion(pindex->pprev, params) >> bit) & 1) == 0;
@@ -2358,7 +2361,11 @@ void static UpdateTip(const CBlockIndex *pindexNew, const CChainParams& chainPar
         for (int i = 0; i < 100 && pindex != nullptr; i++)
         {
             int32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, chainParams.GetConsensus());
-            if (pindex->nVersion > VERSIONBITS_LAST_OLD_BLOCK_VERSION && (pindex->nVersion & ~nExpectedVersion) != 0)
+            int32_t nUnexpectedVersionBits = pindex->nVersion & ~nExpectedVersion;
+            if ((pindex->nVersion & BLOCK_VERSION_PROOF_OF_STAKE) != 0) {
+                nUnexpectedVersionBits &= ~BLOCK_VERSION_PROOF_OF_STAKE;
+            }
+            if (pindex->nVersion > VERSIONBITS_LAST_OLD_BLOCK_VERSION && nUnexpectedVersionBits != 0)
                 ++nUpgraded;
             pindex = pindex->pprev;
         }

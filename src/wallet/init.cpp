@@ -10,6 +10,7 @@
 #include <consensus/validation.h>
 #include <init.h>
 #include <interfaces/chain.h>
+#include <miner.h>
 #include <net.h>
 #include <pow.h>
 #include <scheduler.h>
@@ -26,6 +27,8 @@
 #include <wallet/walletutil.h>
 
 #include <atomic>
+#include <exception>
+#include <memory>
 
 static std::atomic<bool> g_stake_worker_busy{false};
 static std::atomic<int64_t> g_last_coin_stake_search_time{0};
@@ -34,6 +37,51 @@ static std::atomic<int64_t> g_last_coin_stake_search_interval{0};
 int64_t GetLastCoinStakeSearchInterval()
 {
     return g_last_coin_stake_search_interval.load();
+}
+
+static void FinalizeProofOfStakeBlock(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)
+{
+    GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+}
+
+static void AddMempoolTransactionsToProofOfStakeBlock(CBlock& block, const CChainParams& chainparams)
+{
+    try {
+        std::unique_ptr<CBlockTemplate> blockTemplate = BlockAssembler(chainparams).CreateNewBlock(CScript());
+        if (!blockTemplate) {
+            return;
+        }
+
+        for (size_t i = 1; i < blockTemplate->block.vtx.size(); ++i) {
+            const CTransactionRef& tx = blockTemplate->block.vtx[i];
+            if (!tx->IsCoinBase() && !tx->IsCoinStake()) {
+                block.vtx.push_back(tx);
+            }
+        }
+    } catch (const std::exception& e) {
+        LogPrintf("%s: unable to assemble mempool transactions for PoS block: %s\n", __func__, e.what());
+    }
+}
+
+static bool TestProofOfStakeBlockWithMempoolTrim(CBlock& block, const CChainParams& chainparams, CBlockIndex* pindexPrev, std::string& strFailReason)
+{
+    while (true) {
+        FinalizeProofOfStakeBlock(block, pindexPrev, chainparams.GetConsensus());
+
+        CValidationState state;
+        if (TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
+            return true;
+        }
+
+        strFailReason = strprintf("TestBlockValidity failed: %s", FormatStateMessage(state));
+        if (block.vtx.size() <= 2) {
+            return false;
+        }
+
+        LogPrintf("%s: dropping mempool transaction from PoS candidate after validation failure: %s\n", __func__, strFailReason);
+        block.vtx.pop_back();
+    }
 }
 
 static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::string& strFailReason)
@@ -55,9 +103,19 @@ static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::stri
         return false;
     }
 
+    const int64_t nMinimumStakeTime = pindexPrev->GetBlockTime() + consensusParams.nStakeTargetSpacing;
+    if (!chainparams.MineBlocksOnDemand() && GetAdjustedTime() < nMinimumStakeTime) {
+        strFailReason = strprintf("Proof-of-stake target spacing not reached; next local stake attempt is eligible after %d", nMinimumStakeTime);
+        return false;
+    }
+
     int64_t nStakeTime = std::max<int64_t>(GetAdjustedTime(), pindexPrev->GetMedianTimePast() + 1);
+    nStakeTime = std::max<int64_t>(nStakeTime, nMinimumStakeTime);
     if (consensusParams.nStakeTimestampMask > 0) {
         nStakeTime &= ~consensusParams.nStakeTimestampMask;
+        while (nStakeTime < nMinimumStakeTime) {
+            nStakeTime += consensusParams.nStakeTimestampMask + 1;
+        }
         if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
             nStakeTime += consensusParams.nStakeTimestampMask + 1;
         }
@@ -96,12 +154,9 @@ static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::stri
     block.nNonce = 0;
     block.vtx.push_back(MakeTransactionRef(std::move(coinbaseTx)));
     block.vtx.push_back(MakeTransactionRef(std::move(coinstakeTx)));
-    GenerateCoinbaseCommitment(block, pindexPrev, consensusParams);
-    block.hashMerkleRoot = BlockMerkleRoot(block);
+    AddMempoolTransactionsToProofOfStakeBlock(block, chainparams);
 
-    CValidationState state;
-    if (!TestBlockValidity(state, chainparams, block, pindexPrev, false, true)) {
-        strFailReason = strprintf("TestBlockValidity failed: %s", FormatStateMessage(state));
+    if (!TestProofOfStakeBlockWithMempoolTrim(block, chainparams, pindexPrev, strFailReason)) {
         return false;
     }
 
