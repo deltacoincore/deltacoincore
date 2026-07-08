@@ -29,6 +29,8 @@ proof-of-work/proof-of-stake release.
 ## Acknowledgements
 
 - Special thanks to Elmo40 for early and ongoing Deltacoin support.
+- Appreciation to LuckyDogPool for operating pool infrastructure and supporting
+  the network through the hybrid update.
 
 Operators should upgrade staking wallets and public nodes so transactions do
 not remain waiting in mempool while proof-of-stake blocks are being produced.
