@@ -3036,6 +3036,9 @@ CBlockIndex* CChainState::AddToBlockIndex(const CBlockHeader& block)
 
     // Construct new block index object
     CBlockIndex* pindexNew = new CBlockIndex(block);
+    if (block.HasProofOfStakeVersion()) {
+        pindexNew->SetProofOfStake();
+    }
     // We assign the sequence id to blocks only when the full data is available,
     // to avoid miners withholding blocks but broadcasting headers, to get a
     // competitive advantage.

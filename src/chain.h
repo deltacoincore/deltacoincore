@@ -351,7 +351,11 @@ public:
 
     bool IsProofOfStake() const
     {
-        return nStatus & BLOCK_PROOF_OF_STAKE;
+        // Header-first synchronization must know the block type before the
+        // full block arrives. The version marker is part of consensus header
+        // data, while BLOCK_PROOF_OF_STAKE is persisted once data is received.
+        return (nStatus & BLOCK_PROOF_OF_STAKE) ||
+               (nVersion & BLOCK_VERSION_PROOF_OF_STAKE) != 0;
     }
 
     bool IsProofOfWork() const

@@ -68,4 +68,18 @@ BOOST_AUTO_TEST_CASE(get_difficulty_for_very_high_target)
     TestDifficulty(0x12345678, 5913134931067755359633408.0);
 }
 
+BOOST_AUTO_TEST_CASE(header_only_block_index_preserves_proof_type)
+{
+    CBlockHeader proof_of_stake_header;
+    proof_of_stake_header.nVersion = BLOCK_VERSION_PROOF_OF_STAKE;
+    CBlockIndex proof_of_stake_index(proof_of_stake_header);
+    BOOST_CHECK(proof_of_stake_index.IsProofOfStake());
+    BOOST_CHECK(!proof_of_stake_index.IsProofOfWork());
+
+    CBlockHeader proof_of_work_header;
+    CBlockIndex proof_of_work_index(proof_of_work_header);
+    BOOST_CHECK(!proof_of_work_index.IsProofOfStake());
+    BOOST_CHECK(proof_of_work_index.IsProofOfWork());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
