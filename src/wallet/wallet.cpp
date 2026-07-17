@@ -696,7 +696,12 @@ bool CWallet::IsSpent(interfaces::Chain::Lock& locked_chain, const uint256& hash
         std::map<uint256, CWalletTx>::const_iterator mit = mapWallet.find(wtxid);
         if (mit != mapWallet.end()) {
             int depth = mit->second.GetDepthInMainChain(locked_chain);
-            if (depth > 0  || (depth == 0 && !mit->second.isAbandoned()))
+            // A disconnected coinstake cannot be replayed through the mempool.
+            // Do not let a stale wallet record reserve its parent indefinitely.
+            const bool is_live_unconfirmed_spend =
+                depth == 0 && !mit->second.isAbandoned() &&
+                (!mit->second.tx->IsCoinStake() || mit->second.InMempool());
+            if (depth > 0 || is_live_unconfirmed_spend)
                 return true; // Spent
         }
     }
@@ -1275,6 +1280,16 @@ void CWallet::BlockDisconnected(const std::shared_ptr<const CBlock>& pblock) {
 
     for (const CTransactionRef& ptx : pblock->vtx) {
         SyncTransaction(ptx, {} /* block hash */, 0 /* position in block */);
+        if (ptx->IsCoinStake()) {
+            auto it = mapWallet.find(ptx->GetHash());
+            if (it != mapWallet.end() && it->second.GetDepthInMainChain(*locked_chain) == 0 &&
+                !it->second.InMempool() && !it->second.isAbandoned()) {
+                if (!AbandonTransaction(*locked_chain, ptx->GetHash())) {
+                    WalletLogPrintf("BlockDisconnected(): Failed to abandon stale coinstake %s\n",
+                                    ptx->GetHash().ToString());
+                }
+            }
+        }
     }
 }
 
@@ -3349,7 +3364,18 @@ bool CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::ve
             // Broadcast
             if (!wtx.AcceptToMemoryPool(*locked_chain, maxTxFee, state)) {
                 WalletLogPrintf("CommitTransaction(): Transaction cannot be broadcast immediately, %s\n", FormatStateMessage(state));
-                // TODO: if we expect the failure to be long term or permanent, instead delete wtx from the wallet and return failure.
+                if (state.IsValid()) {
+                    state.Invalid(false, REJECT_INVALID, "mempool-rejected",
+                                  "Transaction was not accepted into the local mempool");
+                }
+
+                // The transaction was never relayed, so retaining it would only
+                // reserve its inputs locally until the user abandons it.
+                if (!AbandonTransaction(*locked_chain, wtx.GetHash())) {
+                    WalletLogPrintf("CommitTransaction(): Failed to abandon rejected transaction %s\n",
+                                    wtx.GetHash().ToString());
+                }
+                return false;
             } else {
                 wtx.RelayWalletTransaction(*locked_chain, connman);
             }

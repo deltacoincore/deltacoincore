@@ -308,7 +308,9 @@ static UniValue getstakinginfo(const JSONRPCRequest& request)
             dDifficulty = GetDifficulty(pindexLastStake ? pindexLastStake : chainActive.Tip());
         }
     }
-    const uint64_t nNetworkWeight = static_cast<uint64_t>(GetPoSKernelPS());
+    // GetPoSKernelPS() reports whole-coin weight. Normalize it to base units
+    // so it can be compared with CWallet::GetStakeWeight().
+    const uint64_t nNetworkWeight = static_cast<uint64_t>(GetPoSKernelPS() * COIN);
     const bool fPoSActive = consensusParams.IsHybridPoSEnabled(nNextHeight);
     const bool fStaking = gArgs.GetBoolArg("-staking", true) && fPoSActive && nSearchInterval > 0 && nWeight > 0;
     const int64_t nExpectedTime = (fStaking && nNetworkWeight > 0)

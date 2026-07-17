@@ -1335,7 +1335,9 @@ void BitcoinGUI::updateStakingIcon()
                 tooltip = tr("Not staking because the wallet is locked");
             } else {
                 stakingReady = true;
-                const double nNetworkWeight = GetPoSKernelPS();
+                // GetPoSKernelPS() reports whole-coin weight, while wallet
+                // weight is a CAmount in base units.
+                const double nNetworkWeight = GetPoSKernelPS() * COIN;
                 if (nNetworkWeight > 0) {
                     const Consensus::Params& consensusParams = Params().GetConsensus();
                     const double nEstimateTime = consensusParams.nStakeTargetSpacing * nNetworkWeight / nWeight;

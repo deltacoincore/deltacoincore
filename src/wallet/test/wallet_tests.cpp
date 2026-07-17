@@ -448,6 +448,55 @@ BOOST_FIXTURE_TEST_CASE(ListCoins, ListCoinsTestingSetup)
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 2U);
 }
 
+BOOST_FIXTURE_TEST_CASE(rejected_commit_releases_wallet_inputs, ListCoinsTestingSetup)
+{
+    CMutableTransaction unavailable_parent;
+    unavailable_parent.vout.emplace_back(10 * COIN, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    const CTransactionRef parent = MakeTransactionRef(std::move(unavailable_parent));
+
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_CHECK(wallet->AddToWallet(CWalletTx(wallet.get(), parent), false));
+    }
+
+    CMutableTransaction rejected;
+    rejected.vin.emplace_back(parent->GetHash(), 0);
+    rejected.vout.emplace_back(9 * COIN, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    const CTransactionRef rejected_tx = MakeTransactionRef(std::move(rejected));
+
+    wallet->SetBroadcastTransactions(true);
+    CReserveKey reservekey(wallet.get());
+    CValidationState state;
+    BOOST_CHECK(!wallet->CommitTransaction(rejected_tx, {}, {}, reservekey, nullptr, state));
+    BOOST_CHECK(!state.GetRejectReason().empty());
+
+    LOCK(wallet->cs_wallet);
+    const auto it = wallet->mapWallet.find(rejected_tx->GetHash());
+    BOOST_REQUIRE(it != wallet->mapWallet.end());
+    BOOST_CHECK(it->second.isAbandoned());
+}
+
+BOOST_FIXTURE_TEST_CASE(stale_coinstake_does_not_reserve_parent, ListCoinsTestingSetup)
+{
+    CMutableTransaction parent_tx;
+    parent_tx.vout.emplace_back(10 * COIN, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    const CTransactionRef parent = MakeTransactionRef(std::move(parent_tx));
+
+    CMutableTransaction stale_stake;
+    stale_stake.vin.emplace_back(parent->GetHash(), 0);
+    CTxOut empty_output;
+    empty_output.SetEmpty();
+    stale_stake.vout.push_back(empty_output);
+    stale_stake.vout.emplace_back(10 * COIN, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    const CTransactionRef stale_stake_tx = MakeTransactionRef(std::move(stale_stake));
+    BOOST_REQUIRE(stale_stake_tx->IsCoinStake());
+
+    LOCK(wallet->cs_wallet);
+    BOOST_CHECK(wallet->AddToWallet(CWalletTx(wallet.get(), parent), false));
+    BOOST_CHECK(wallet->AddToWallet(CWalletTx(wallet.get(), stale_stake_tx), false));
+    BOOST_CHECK(!wallet->IsSpent(*m_locked_chain, parent->GetHash(), 0));
+}
+
 BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
 {
     auto chain = interfaces::MakeChain();
