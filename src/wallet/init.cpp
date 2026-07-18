@@ -103,19 +103,9 @@ static bool TryCreateProofOfStakeBlock(CWallet& wallet, CBlock& block, std::stri
         return false;
     }
 
-    const int64_t nMinimumStakeTime = pindexPrev->GetBlockTime() + consensusParams.nStakeTargetSpacing;
-    if (!chainparams.MineBlocksOnDemand() && GetAdjustedTime() < nMinimumStakeTime) {
-        strFailReason = strprintf("Proof-of-stake target spacing not reached; next local stake attempt is eligible after %d", nMinimumStakeTime);
-        return false;
-    }
-
     int64_t nStakeTime = std::max<int64_t>(GetAdjustedTime(), pindexPrev->GetMedianTimePast() + 1);
-    nStakeTime = std::max<int64_t>(nStakeTime, nMinimumStakeTime);
     if (consensusParams.nStakeTimestampMask > 0) {
         nStakeTime &= ~consensusParams.nStakeTimestampMask;
-        while (nStakeTime < nMinimumStakeTime) {
-            nStakeTime += consensusParams.nStakeTimestampMask + 1;
-        }
         if (nStakeTime <= pindexPrev->GetMedianTimePast()) {
             nStakeTime += consensusParams.nStakeTimestampMask + 1;
         }

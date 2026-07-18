@@ -61,6 +61,35 @@ BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), 0x1b054c60U);
 }
 
+BOOST_AUTO_TEST_CASE(hybrid_pos_retarget_hardens_when_stakes_arrive_early)
+{
+    const auto chainParams = CreateChainParams(CBaseChainParams::MAIN);
+    const Consensus::Params& consensus = chainParams->GetConsensus();
+    const unsigned int easiestTarget = UintToArith256(consensus.powLimit).GetCompact();
+    std::vector<CBlockIndex> blocks(3);
+
+    for (int i = 0; i < 3; ++i) {
+        blocks[i].pprev = i ? &blocks[i - 1] : nullptr;
+        blocks[i].nHeight = consensus.nHybridDifficultySplitHeight + i;
+        blocks[i].nTime = 1700000000 + (i * 240);
+        blocks[i].nBits = easiestTarget;
+        blocks[i].SetProofOfStake();
+    }
+
+    CBlockHeader candidate;
+    candidate.nVersion = BLOCK_VERSION_PROOF_OF_STAKE;
+    candidate.nTime = blocks.back().nTime + 240;
+
+    const unsigned int nextTarget = GetNextWorkRequired(&blocks.back(), &candidate, consensus);
+    BOOST_CHECK_NE(nextTarget, easiestTarget);
+
+    arith_uint256 next;
+    arith_uint256 easiest;
+    next.SetCompact(nextTarget);
+    easiest.SetCompact(easiestTarget);
+    BOOST_CHECK(next < easiest);
+}
+
 BOOST_AUTO_TEST_CASE(GetBlockProofEquivalentTime_test)
 {
     const auto chainParams = CreateChainParams(CBaseChainParams::MAIN);
