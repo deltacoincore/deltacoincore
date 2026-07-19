@@ -26,6 +26,12 @@ double GetDifficulty(const CBlockIndex* blockindex);
 /** Estimate proof-of-stake kernel attempts per second from recent PoS blocks. */
 double GetPoSKernelPS();
 
+/** Convert a kernel estimate to the bounded integer weight exposed by RPC and UI. */
+uint64_t NormalizePoSNetworkWeight(double kernel_estimate);
+
+/** Return the current bounded proof-of-stake network weight estimate. */
+uint64_t GetPoSNetworkWeight();
+
 /** Callback for when block tip changed. */
 void RPCNotifyBlockChange(bool ibd, const CBlockIndex *);
 

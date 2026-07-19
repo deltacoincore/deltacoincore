@@ -35,6 +35,8 @@
 #include <warnings.h>
 
 #include <assert.h>
+#include <cmath>
+#include <limits>
 #include <stdint.h>
 
 #include <univalue.h>
@@ -105,9 +107,12 @@ double GetPoSKernelPS()
     while (pindex && nStakesHandled < nPoSInterval) {
         if (pindex->IsProofOfStake()) {
             if (pindexPrevStake) {
-                dStakeKernelsTriedAvg += GetDifficulty(pindexPrevStake) * 4294967296.0;
-                nStakesTime += pindexPrevStake->GetBlockTime() - pindex->GetBlockTime();
-                nStakesHandled++;
+                const int64_t nStakeTime = pindexPrevStake->GetBlockTime() - pindex->GetBlockTime();
+                if (nStakeTime > 0) {
+                    dStakeKernelsTriedAvg += GetDifficulty(pindexPrevStake) * 4294967296.0;
+                    nStakesTime += nStakeTime;
+                    nStakesHandled++;
+                }
             }
             pindexPrevStake = pindex;
         }
@@ -120,6 +125,23 @@ double GetPoSKernelPS()
     }
 
     return (dStakeKernelsTriedAvg / nStakesTime) * 16;
+}
+
+uint64_t NormalizePoSNetworkWeight(double kernel_estimate)
+{
+    if (!std::isfinite(kernel_estimate) || kernel_estimate <= 0) {
+        return 0;
+    }
+    const double max_weight = static_cast<double>(std::numeric_limits<uint64_t>::max());
+    if (kernel_estimate >= max_weight) {
+        return std::numeric_limits<uint64_t>::max();
+    }
+    return static_cast<uint64_t>(kernel_estimate);
+}
+
+uint64_t GetPoSNetworkWeight()
+{
+    return NormalizePoSNetworkWeight(GetPoSKernelPS());
 }
 
 static int ComputeNextBlockAndDepth(const CBlockIndex* tip, const CBlockIndex* blockindex, const CBlockIndex*& next)

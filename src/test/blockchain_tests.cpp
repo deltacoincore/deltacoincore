@@ -1,5 +1,6 @@
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
 #include <stdlib.h>
 
 #include <rpc/blockchain.h>
@@ -80,6 +81,19 @@ BOOST_AUTO_TEST_CASE(header_only_block_index_preserves_proof_type)
     CBlockIndex proof_of_work_index(proof_of_work_header);
     BOOST_CHECK(!proof_of_work_index.IsProofOfStake());
     BOOST_CHECK(proof_of_work_index.IsProofOfWork());
+}
+
+BOOST_AUTO_TEST_CASE(pos_network_weight_is_bounded_without_coin_rescaling)
+{
+    const double live_regression_estimate = 698531075432.8326;
+    BOOST_CHECK_EQUAL(NormalizePoSNetworkWeight(live_regression_estimate), 698531075432ULL);
+    BOOST_CHECK_EQUAL(NormalizePoSNetworkWeight(0), 0U);
+    BOOST_CHECK_EQUAL(
+        NormalizePoSNetworkWeight(std::numeric_limits<double>::infinity()),
+        0U);
+    BOOST_CHECK_EQUAL(
+        NormalizePoSNetworkWeight(static_cast<double>(std::numeric_limits<uint64_t>::max()) * 4),
+        std::numeric_limits<uint64_t>::max());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
